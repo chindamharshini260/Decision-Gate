@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import pg from 'pg';
-import { randomUUID as uuidv4 } from 'crypto';
+import { randomUUID as uuidv4, createHash } from 'crypto';
 
 const { Pool } = pg;
 
@@ -68,6 +68,7 @@ export interface SourceDocument {
   documentType: string;
   uploadDate: string;
   content: string;
+  contentHash?: string;
   extractedExperienceJson?: string;
   processingStatus: 'PENDING' | 'EXTRACTED' | 'APPROVED' | 'REJECTED';
   hindsightStatus: 'PENDING' | 'SYNCED' | 'FAILED';
@@ -607,10 +608,50 @@ class RelationalDatabase {
     };
   }
 
-  // Duplicate Prevention Check
-  public checkDuplicateExperience(projectName: string, problemGoal: string, whatWasAttempted: string): { isDuplicate: boolean; existingExperience?: HistoricalExperience; existingProject?: HistoricalProject; reason?: string } {
-    const normName = projectName.trim().toLowerCase();
-    const existingProject = this.localData.historicalProjects.find(p => p.name.trim().toLowerCase() === normName);
+  // Multi-signal Duplicate Prevention Check
+  public checkDuplicateExperience(
+    projectName: string,
+    problemGoal: string,
+    whatWasAttempted: string,
+    options?: { sourceDocId?: string; departmentId?: string; startDate?: string; endDate?: string }
+  ): { isDuplicate: boolean; existingExperience?: HistoricalExperience; existingProject?: HistoricalProject; reason?: string } {
+    const cleanNorm = (str: string) => str.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const cleanProj = (str: string) => cleanNorm(str).replace(/\b(system|project|initiative|tool|app|application|platform|assistant|service)\b/g, '').replace(/\s+/g, ' ').trim();
+    const wordOverlap = (a: string, b: string) => {
+      const wordsA = new Set(cleanNorm(a).split(' ').filter(w => w.length > 3));
+      const wordsB = new Set(cleanNorm(b).split(' ').filter(w => w.length > 3));
+      if (wordsA.size === 0 || wordsB.size === 0) return 0;
+      let common = 0;
+      for (const w of wordsA) if (wordsB.has(w)) common++;
+      return common / Math.min(wordsA.size, wordsB.size);
+    };
+
+    // 1. Source Document Check
+    if (options?.sourceDocId) {
+      const docMatch = this.localData.historicalProjects.find(p => p.sourceDocId === options.sourceDocId);
+      if (docMatch) {
+        const expMatch = this.localData.historicalExperiences.find(e => e.projectId === docMatch.id);
+        return {
+          isDuplicate: true,
+          existingProject: docMatch,
+          existingExperience: expMatch,
+          reason: `A historical experience has already been processed from this source document for project "${docMatch.name}".`,
+        };
+      }
+    }
+
+    // 2. Normalized Project Name Comparison
+    const targetNorm = cleanProj(projectName);
+    const exactNorm = cleanNorm(projectName);
+    const existingProject = this.localData.historicalProjects.find(p => {
+      const currNorm = cleanProj(p.name);
+      const currExact = cleanNorm(p.name);
+      if (currExact === exactNorm) return true;
+      if (targetNorm.length >= 4 && currNorm.length >= 4) {
+        if (targetNorm === currNorm || targetNorm.includes(currNorm) || currNorm.includes(targetNorm)) return true;
+      }
+      return false;
+    });
 
     if (existingProject) {
       const existingExperience = this.localData.historicalExperiences.find(e => e.projectId === existingProject.id);
@@ -619,21 +660,22 @@ class RelationalDatabase {
           isDuplicate: true,
           existingExperience,
           existingProject,
-          reason: `A historical experience for project "${existingProject.name}" already exists in the system.`,
+          reason: `A historical experience for project "${existingProject.name}" already exists in canonical records.`,
         };
       }
     }
 
-    // Check textual overlap
-    const normAttempted = whatWasAttempted.trim().toLowerCase();
+    // 3. Textual & Semantic Overlap Comparison across All Experiences
     for (const exp of this.localData.historicalExperiences) {
-      if (exp.whatWasAttempted && normAttempted.length > 20 && exp.whatWasAttempted.toLowerCase().includes(normAttempted.slice(0, 40))) {
+      const attemptOverlap = wordOverlap(whatWasAttempted, exp.whatWasAttempted || '');
+      const goalOverlap = wordOverlap(problemGoal, exp.problemGoal || '');
+      if (attemptOverlap > 0.55 || (attemptOverlap > 0.4 && goalOverlap > 0.5)) {
         const proj = this.localData.historicalProjects.find(p => p.id === exp.projectId);
         return {
           isDuplicate: true,
           existingExperience: exp,
           existingProject: proj,
-          reason: `High textual similarity with existing project attempt "${proj?.name || 'Unknown'}".`,
+          reason: `High content similarity (${Math.round(Math.max(attemptOverlap, goalOverlap) * 100)}%) with existing initiative "${proj?.name || 'Unknown'}".`,
         };
       }
     }
@@ -641,22 +683,59 @@ class RelationalDatabase {
     return { isDuplicate: false };
   }
 
-  public async createHistoricalProjectAndExperience(projectData: Omit<HistoricalProject, 'id' | 'createdAt' | 'updatedAt'>, experienceData: Omit<HistoricalExperience, 'id' | 'projectId' | 'createdAt' | 'updatedAt' | 'hindsightMemoryId' | 'hindsightSyncStatus' | 'hindsightSyncedAt' | 'hindsightSyncError'>, hindsightMemoryId?: string): Promise<{ project: HistoricalProject; experience: HistoricalExperience }> {
+  public async createHistoricalProjectAndExperience(
+    projectData: Omit<HistoricalProject, 'id' | 'createdAt' | 'updatedAt'>,
+    experienceData: Omit<HistoricalExperience, 'id' | 'projectId' | 'createdAt' | 'updatedAt' | 'hindsightMemoryId' | 'hindsightSyncStatus' | 'hindsightSyncedAt' | 'hindsightSyncError'>,
+    hindsightMemoryId?: string
+  ): Promise<{ project: HistoricalProject; experience: HistoricalExperience }> {
+    const cleanNorm = (str: string) => str.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const cleanProj = (str: string) => cleanNorm(str).replace(/\b(system|project|initiative|tool|app|application|platform|assistant|service)\b/g, '').replace(/\s+/g, ' ').trim();
+
     const now = new Date().toISOString();
-    const projectId = uuidv4();
+    const targetNorm = cleanProj(projectData.name);
+    const exactNorm = cleanNorm(projectData.name);
+
+    // Check if canonical project already exists
+    let existingProject = this.localData.historicalProjects.find(p => {
+      const currNorm = cleanProj(p.name);
+      return cleanNorm(p.name) === exactNorm || (targetNorm.length >= 4 && currNorm === targetNorm);
+    });
+
+    let project: HistoricalProject;
+    if (existingProject) {
+      project = existingProject;
+      // Update dates or status if provided and missing
+      if (projectData.startDate && !project.startDate) project.startDate = projectData.startDate;
+      if (projectData.endDate && !project.endDate) project.endDate = projectData.endDate;
+      if (projectData.status && project.status === 'Unknown') project.status = projectData.status;
+      project.updatedAt = now;
+
+      // Check if experience already exists for this project
+      const existingExp = this.localData.historicalExperiences.find(e => 
+        e.projectId === project.id && 
+        (cleanNorm(e.problemGoal) === cleanNorm(experienceData.problemGoal) || cleanNorm(e.whatWasAttempted) === cleanNorm(experienceData.whatWasAttempted))
+      );
+
+      if (existingExp) {
+        // Return canonical record without duplicating!
+        return { project, experience: existingExp };
+      }
+    } else {
+      const projectId = uuidv4();
+      project = {
+        ...projectData,
+        id: projectId,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.localData.historicalProjects.push(project);
+    }
+
     const experienceId = uuidv4();
-
-    const project: HistoricalProject = {
-      ...projectData,
-      id: projectId,
-      createdAt: now,
-      updatedAt: now,
-    };
-
     const experience: HistoricalExperience = {
       ...experienceData,
       id: experienceId,
-      projectId,
+      projectId: project.id,
       hindsightMemoryId: hindsightMemoryId || undefined,
       hindsightSyncStatus: hindsightMemoryId ? 'SYNCED' : 'PENDING',
       hindsightSyncedAt: hindsightMemoryId ? now : undefined,
@@ -664,7 +743,6 @@ class RelationalDatabase {
       updatedAt: now,
     };
 
-    this.localData.historicalProjects.push(project);
     this.localData.historicalExperiences.push(experience);
     this.saveLocalData(this.localData);
 
@@ -747,19 +825,32 @@ class RelationalDatabase {
   }
 
   public async createDocument(name: string, documentType: string, content: string): Promise<SourceDocument> {
+    const contentTrimmed = content.trim();
+    const hash = createHash('sha256').update(contentTrimmed).digest('hex');
+
+    // Check duplicate document by hash or identical content
+    const existing = this.localData.sourceDocuments.find(d => 
+      d.contentHash === hash || d.content.trim() === contentTrimmed || (d.name.trim().toLowerCase() === name.trim().toLowerCase() && d.content.length === content.length)
+    );
+
+    if (existing) {
+      throw new Error('This document has already been processed.');
+    }
+
     const doc: SourceDocument = {
       id: uuidv4(),
       name,
       documentType,
       uploadDate: new Date().toISOString(),
       content,
+      contentHash: hash,
       processingStatus: 'PENDING',
       hindsightStatus: 'PENDING',
       createdAt: new Date().toISOString(),
     };
     this.localData.sourceDocuments.push(doc);
     this.saveLocalData(this.localData);
-    await this.logAudit('DOCUMENT_UPLOADED', 'SourceDocument', doc.id, { name, documentType });
+    await this.logAudit('DOCUMENT_UPLOADED', 'SourceDocument', doc.id, { name, documentType, contentHash: hash });
     return doc;
   }
 
@@ -775,6 +866,48 @@ class RelationalDatabase {
 
   // --- Proposals ---
   public async getProposals(): Promise<(Proposal & { department?: Department; decisionRecord?: DecisionRecord; outcome?: ProposalOutcome; latestAnalysis?: ProposalAnalysis })[]> {
+    if (this.isPostgresAvailable && this.pgPool) {
+      try {
+        const res = await this.pgPool.query(`SELECT * FROM proposals ORDER BY created_at DESC`);
+        if (res.rows && res.rows.length > 0) {
+          // Merge PG rows into localData if any are missing
+          for (const row of res.rows) {
+            const existingIdx = this.localData.proposals.findIndex(p => p.id === row.id);
+            const mapped: Proposal = {
+              id: row.id,
+              title: row.title,
+              submittedBy: row.submitted_by,
+              userId: row.user_id || undefined,
+              departmentId: row.department_id || undefined,
+              problemBeingSolved: row.problem_being_solved,
+              proposedSolution: row.proposed_solution,
+              targetUsers: row.target_users,
+              expectedOutcome: row.expected_outcome,
+              technologyApproach: row.technology_approach,
+              estimatedScope: row.estimated_scope || undefined,
+              knownRisks: row.known_risks || undefined,
+              dependencies: row.dependencies || undefined,
+              whyBelieveItWillWork: row.why_believe_it_will_work || undefined,
+              whatIsDifferentFromPrevious: row.what_is_different_from_previous || undefined,
+              successCriteria: row.success_criteria || undefined,
+              rawText: row.raw_text || undefined,
+              status: row.status as any,
+              createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+              updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+            };
+            if (existingIdx >= 0) {
+              this.localData.proposals[existingIdx] = mapped;
+            } else {
+              this.localData.proposals.push(mapped);
+            }
+          }
+          this.saveLocalData(this.localData);
+        }
+      } catch (err) {
+        console.warn('Postgres getProposals query failed, using local persistent data:', err);
+      }
+    }
+
     return this.localData.proposals.map(prop => {
       const department = this.localData.departments.find(d => d.id === prop.departmentId);
       const decisionRecord = this.localData.decisionRecords.find(d => d.proposalId === prop.id);
@@ -792,6 +925,46 @@ class RelationalDatabase {
   }
 
   public async getProposalById(id: string): Promise<(Proposal & { department?: Department; decisionRecord?: DecisionRecord; outcome?: ProposalOutcome; analyses: ProposalAnalysis[] }) | null> {
+    if (this.isPostgresAvailable && this.pgPool) {
+      try {
+        const res = await this.pgPool.query(`SELECT * FROM proposals WHERE id = $1`, [id]);
+        if (res.rows && res.rows.length > 0) {
+          const row = res.rows[0];
+          const mapped: Proposal = {
+            id: row.id,
+            title: row.title,
+            submittedBy: row.submitted_by,
+            userId: row.user_id || undefined,
+            departmentId: row.department_id || undefined,
+            problemBeingSolved: row.problem_being_solved,
+            proposedSolution: row.proposed_solution,
+            targetUsers: row.target_users,
+            expectedOutcome: row.expected_outcome,
+            technologyApproach: row.technology_approach,
+            estimatedScope: row.estimated_scope || undefined,
+            knownRisks: row.known_risks || undefined,
+            dependencies: row.dependencies || undefined,
+            whyBelieveItWillWork: row.why_believe_it_will_work || undefined,
+            whatIsDifferentFromPrevious: row.what_is_different_from_previous || undefined,
+            successCriteria: row.success_criteria || undefined,
+            rawText: row.raw_text || undefined,
+            status: row.status as any,
+            createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+            updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+          };
+          const existingIdx = this.localData.proposals.findIndex(p => p.id === mapped.id);
+          if (existingIdx >= 0) {
+            this.localData.proposals[existingIdx] = mapped;
+          } else {
+            this.localData.proposals.push(mapped);
+          }
+          this.saveLocalData(this.localData);
+        }
+      } catch (err) {
+        console.warn('Postgres getProposalById query failed, using local persistent data:', err);
+      }
+    }
+
     const prop = this.localData.proposals.find(p => p.id === id);
     if (!prop) return null;
     const department = this.localData.departments.find(d => d.id === prop.departmentId);
@@ -808,6 +981,20 @@ class RelationalDatabase {
   }
 
   public async createProposal(data: Omit<Proposal, 'id' | 'createdAt' | 'updatedAt' | 'status'>): Promise<Proposal> {
+    const norm = (s: string) => (s || '').trim().toLowerCase();
+    
+    // Idempotency / Double submission protection: Check if an identical proposal was recently created
+    const existing = this.localData.proposals.find(p => 
+      norm(p.title) === norm(data.title) &&
+      norm(p.problemBeingSolved) === norm(data.problemBeingSolved) &&
+      norm(p.proposedSolution) === norm(data.proposedSolution)
+    );
+
+    if (existing) {
+      console.log(`Duplicate proposal detected with title "${data.title}", returning existing proposal ID: ${existing.id}`);
+      return existing;
+    }
+
     const now = new Date().toISOString();
     const proposal: Proposal = {
       ...data,
@@ -816,6 +1003,49 @@ class RelationalDatabase {
       createdAt: now,
       updatedAt: now,
     };
+
+    // 1. Persist to PostgreSQL if available
+    if (this.isPostgresAvailable && this.pgPool) {
+      try {
+        await this.pgPool.query(
+          `INSERT INTO proposals (
+            id, title, submitted_by, user_id, department_id,
+            problem_being_solved, proposed_solution, target_users,
+            expected_outcome, technology_approach, estimated_scope,
+            known_risks, dependencies, why_believe_it_will_work,
+            what_is_different_from_previous, success_criteria,
+            raw_text, status, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
+          [
+            proposal.id,
+            proposal.title,
+            proposal.submittedBy,
+            proposal.userId || null,
+            proposal.departmentId || null,
+            proposal.problemBeingSolved,
+            proposal.proposedSolution,
+            proposal.targetUsers,
+            proposal.expectedOutcome,
+            proposal.technologyApproach,
+            proposal.estimatedScope || null,
+            proposal.knownRisks || null,
+            proposal.dependencies || null,
+            proposal.whyBelieveItWillWork || null,
+            proposal.whatIsDifferentFromPrevious || null,
+            proposal.successCriteria || null,
+            proposal.rawText || null,
+            proposal.status,
+            proposal.createdAt,
+            proposal.updatedAt,
+          ]
+        );
+        console.log(`Saved proposal ${proposal.id} directly to PostgreSQL`);
+      } catch (pgErr) {
+        console.warn('Postgres proposal INSERT error, falling back to local persistent store:', pgErr);
+      }
+    }
+
+    // 2. Persist to local JSON database storage
     this.localData.proposals.push(proposal);
     this.saveLocalData(this.localData);
     await this.logAudit('PROPOSAL_CREATED', 'Proposal', proposal.id, { title: proposal.title, submittedBy: proposal.submittedBy });
@@ -823,10 +1053,20 @@ class RelationalDatabase {
   }
 
   public async updateProposalStatus(id: string, status: 'DRAFT' | 'ANALYZED' | 'DECIDED' | 'COMPLETED'): Promise<Proposal | null> {
+    const now = new Date().toISOString();
+
+    if (this.isPostgresAvailable && this.pgPool) {
+      try {
+        await this.pgPool.query(`UPDATE proposals SET status = $1, updated_at = $2 WHERE id = $3`, [status, now, id]);
+      } catch (err) {
+        console.warn('Postgres proposal UPDATE status error:', err);
+      }
+    }
+
     const prop = this.localData.proposals.find(p => p.id === id);
     if (!prop) return null;
     prop.status = status;
-    prop.updatedAt = new Date().toISOString();
+    prop.updatedAt = now;
     this.saveLocalData(this.localData);
     return prop;
   }
@@ -845,6 +1085,16 @@ class RelationalDatabase {
     const analysisId = uuidv4();
     const now = new Date().toISOString();
 
+    // Clean previous analyses for this proposal so re-running analysis never leaves duplicate stale records (Requirement 11)
+    const oldAnalysisIds = new Set(
+      this.localData.proposalAnalyses.filter(a => a.proposalId === proposalId).map(a => a.id)
+    );
+    if (oldAnalysisIds.size > 0) {
+      this.localData.proposalAnalyses = this.localData.proposalAnalyses.filter(a => !oldAnalysisIds.has(a.id));
+      this.localData.recalledPrecedents = this.localData.recalledPrecedents.filter(p => !oldAnalysisIds.has(p.analysisId));
+      this.localData.precedentComparisons = this.localData.precedentComparisons.filter(c => !oldAnalysisIds.has(c.analysisId));
+    }
+
     const analysis: ProposalAnalysis = {
       id: analysisId,
       proposalId,
@@ -857,8 +1107,15 @@ class RelationalDatabase {
     };
     this.localData.proposalAnalyses.push(analysis);
 
+    // Strictly deduplicate precedents before saving
     const savedPrecedents: RecalledPrecedent[] = [];
+    const seenPrecedentKeys = new Set<string>();
+
     for (const p of recalledPrecedents) {
+      const key = p.historicalExperienceId || p.hindsightMemoryId || p.summary;
+      if (seenPrecedentKeys.has(key)) continue;
+      seenPrecedentKeys.add(key);
+
       const rec: RecalledPrecedent = {
         ...p,
         id: uuidv4(),
@@ -886,37 +1143,120 @@ class RelationalDatabase {
     await this.logAudit('PRECEDENT_ANALYSIS_COMPLETED', 'ProposalAnalysis', analysisId, {
       proposalId,
       precedentFound,
-      memoriesRecalledCount,
+      memoriesRecalledCount: savedPrecedents.length,
       memoryStatus,
     });
 
     return { analysis, comparison, precedents: savedPrecedents };
   }
 
-  public async getLatestAnalysisForProposal(proposalId: string): Promise<{ analysis: ProposalAnalysis; comparison: PrecedentComparison | null; precedents: (RecalledPrecedent & { historicalExperience?: HistoricalExperience & { project?: HistoricalProject } })[] } | null> {
+  public async getLatestAnalysisForProposal(proposalId: string): Promise<{ analysis: ProposalAnalysis; comparison: PrecedentComparison | null; precedents: any[] } | null> {
     const analyses = this.localData.proposalAnalyses.filter(a => a.proposalId === proposalId);
     if (analyses.length === 0) return null;
-    const latest = analyses[analyses.length - 1];
+    const latest = { ...analyses[analyses.length - 1] };
 
     const comparison = this.localData.precedentComparisons.find(c => c.analysisId === latest.id) || null;
     const rawPrecedents = this.localData.recalledPrecedents.filter(p => p.analysisId === latest.id);
 
-    const precedents = rawPrecedents.map(p => {
-      let historicalExperience: (HistoricalExperience & { project?: HistoricalProject }) | undefined = undefined;
-      if (p.historicalExperienceId) {
-        const exp = this.localData.historicalExperiences.find(e => e.id === p.historicalExperienceId);
-        if (exp) {
-          const project = this.localData.historicalProjects.find(prj => prj.id === exp.projectId);
-          historicalExperience = { ...exp, project };
+    const cleanNorm = (str: string) => (str || '').toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const cleanProj = (str: string) => cleanNorm(str).replace(/\b(system|project|initiative|tool|app|application|platform|assistant|service)\b/g, '').replace(/\s+/g, ' ').trim();
+
+    // Map canonical key -> canonical precedent object
+    const canonicalMap = new Map<string, any>();
+
+    for (const p of rawPrecedents) {
+      let parsed: any = {};
+      try {
+        if (p.content) parsed = JSON.parse(p.content);
+      } catch (_) {
+        parsed = {};
+      }
+
+      // Step 1: Resolve historical experience from local DB
+      let exp: (HistoricalExperience & { project?: HistoricalProject }) | undefined = undefined;
+      const targetExpId = p.historicalExperienceId || parsed.experienceId;
+      if (targetExpId) {
+        const found = this.localData.historicalExperiences.find(e => e.id === targetExpId);
+        if (found) {
+          const project = this.localData.historicalProjects.find(prj => prj.id === found.projectId);
+          exp = { ...found, project };
         }
       }
-      return {
-        ...p,
-        historicalExperience,
-      };
-    });
 
-    return { analysis: latest, comparison, precedents };
+      // Step 2: Try to match by project name or mention in text if not resolved yet
+      const candidateName = exp?.project?.name || parsed.projectName || '';
+      if (!exp) {
+        for (const storedExp of this.localData.historicalExperiences) {
+          const prj = this.localData.historicalProjects.find(prjItem => prjItem.id === storedExp.projectId);
+          if (!prj) continue;
+          const pNorm = cleanNorm(prj.name);
+          const pClean = cleanProj(prj.name);
+          const textCorpus = cleanNorm(`${candidateName} ${p.summary} ${parsed.whatWasAttempted || ''} ${p.content || ''}`);
+          if (
+            (pNorm.length > 0 && textCorpus.includes(pNorm)) ||
+            (pClean.length >= 3 && textCorpus.includes(pClean))
+          ) {
+            exp = { ...storedExp, project: prj };
+            break;
+          }
+        }
+      }
+
+      const finalProjectName = exp?.project?.name || parsed.projectName || 'Historical Precedent';
+      const canonicalKey = exp ? `exp_${exp.id}` : `proj_${cleanProj(finalProjectName) || cleanNorm(finalProjectName) || p.hindsightMemoryId || p.id}`;
+
+      const evidenceSnippet = (parsed.whatWasAttempted || parsed.whatHappened || p.summary || '').trim();
+
+      if (canonicalMap.has(canonicalKey)) {
+        const existing = canonicalMap.get(canonicalKey);
+        existing.relevanceScore = Math.max(existing.relevanceScore || 0, p.relevanceScore || 0);
+        if (!existing.historicalExperience && exp) {
+          existing.historicalExperience = exp;
+          existing.historicalExperienceId = exp.id;
+          existing.projectName = exp.project?.name || existing.projectName;
+          existing.status = exp.project?.status || existing.status;
+          existing.startDate = exp.project?.startDate || existing.startDate;
+          existing.endDate = exp.project?.endDate || existing.endDate;
+        }
+        if (evidenceSnippet && !existing.additionalEvidence.includes(evidenceSnippet) && evidenceSnippet !== existing.whatWasAttempted) {
+          existing.additionalEvidence.push(evidenceSnippet);
+        }
+        continue;
+      }
+
+      const canonicalItem: any = {
+        id: p.id,
+        analysisId: p.analysisId,
+        historicalExperienceId: exp?.id || p.historicalExperienceId || parsed.experienceId,
+        hindsightMemoryId: p.hindsightMemoryId || parsed.hindsightMemoryId,
+        relevanceScore: p.relevanceScore || parsed.relevanceScore || 0.85,
+        projectName: finalProjectName,
+        status: exp?.project?.status || parsed.status || 'Previous Attempt',
+        startDate: exp?.project?.startDate || parsed.startDate || undefined,
+        endDate: exp?.project?.endDate || parsed.endDate || undefined,
+        problemGoal: exp?.problemGoal || parsed.problemGoal || '',
+        whatWasAttempted: exp?.whatWasAttempted || parsed.whatWasAttempted || '',
+        approachUsed: exp?.approachUsed || parsed.approachUsed || '',
+        whatHappened: exp?.whatHappened || parsed.whatHappened || '',
+        whatWorked: exp?.whatWorked || parsed.whatWorked || '',
+        whatFailed: exp?.whatFailed || parsed.whatFailed || '',
+        whyItFailed: exp?.whyItFailed || parsed.whyItFailed || '',
+        rootCause: exp?.rootCause || parsed.rootCause || '',
+        lessonsLearned: exp?.lessonsLearned || parsed.lessonsLearned || '',
+        source: exp?.source || parsed.source || 'Historical Record',
+        whyRecalled: p.whyRecalled || parsed.whyRecalled || 'Retrieved from organizational memory',
+        summary: p.summary || parsed.summary || `${finalProjectName}: Documented Precedent`,
+        additionalEvidence: [],
+        historicalExperience: exp,
+      };
+
+      canonicalMap.set(canonicalKey, canonicalItem);
+    }
+
+    const uniquePrecedents = Array.from(canonicalMap.values());
+    latest.memoriesRecalledCount = uniquePrecedents.length;
+
+    return { analysis: latest, comparison, precedents: uniquePrecedents };
   }
 
   // --- Human Decision Record ---

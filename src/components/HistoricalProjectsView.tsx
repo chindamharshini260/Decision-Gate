@@ -104,7 +104,7 @@ export const HistoricalProjectsView: React.FC<HistoricalProjectsViewProps> = ({
         <div className="bg-white border border-dashed border-gray-300 rounded-xl p-12 text-center">
           <History className="w-10 h-10 mx-auto text-gray-400 mb-3" />
           <h3 className="text-base font-semibold text-gray-900">
-            {projects.length === 0 ? 'No historical organizational experience has been recorded yet.' : 'No matching historical projects found.'}
+            {projects.length === 0 ? 'No historical organizational data available.' : 'No matching historical projects found.'}
           </h3>
           <p className="text-sm text-gray-500 mt-1 max-w-sm mx-auto">
             {projects.length === 0 
@@ -175,8 +175,10 @@ export const HistoricalProjectsView: React.FC<HistoricalProjectsViewProps> = ({
                         <FileText className="w-3.5 h-3.5 text-gray-400" />
                         Source: {exp?.source || 'Postmortem / Retrospective'}
                       </span>
-                      {proj.startDate && (
-                        <span>Timeline: {proj.startDate} {proj.endDate ? `to ${proj.endDate}` : ''}</span>
+                      {proj.startDate || proj.endDate ? (
+                        <span>Timeline: {proj.startDate || ''} {proj.endDate ? `to ${proj.endDate}` : ''}</span>
+                      ) : (
+                        <span className="italic text-gray-400">Historical dates not specified in source record</span>
                       )}
                     </div>
                   </div>

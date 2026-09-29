@@ -68,25 +68,6 @@ export const AddHistoricalExperienceView: React.FC<AddHistoricalExperienceViewPr
   const [saveSuccess, setSaveSuccess] = useState<any | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Quick fill example from Main User Story
-  const handleLoadUserStoryExample = () => {
-    setNaturalLanguageText(
-      `Historical Project: Customer Support Chatbot
-Department: Customer Operations
-Timeline: January 2024 to June 2024
-Outcome: Cancelled / Discontinued
-Problem: Automate tier-1 customer inquiries to reduce ticket resolution time.
-What was attempted: An AI chatbot was deployed to answer customer questions end-to-end.
-Approach: Direct LLM responses on general documentation with no human escalation path.
-What happened: Customers frequently asked complicated billing questions. The chatbot hallucinated credits and gave incorrect policy details.
-Why it failed: The chatbot could not reliably handle complex billing cases and there was no effective human escalation path.
-Root cause: Lack of human-in-the-loop escalation criteria and absence of deterministic billing transaction guards.
-Lessons learned: For billing-related AI assistants, complex cases require mandatory human escalation and clear scope boundaries.
-Future conditions: Can work if strictly limited to simple FAQs with immediate live agent handoff for any billing transactions.
-Source: Postmortem — Customer Support Chatbot Incident Review`
-    );
-  };
-
   // AI Extraction Trigger
   const handleExtractWithAI = async () => {
     if (!naturalLanguageText.trim()) {
@@ -320,12 +301,6 @@ Source: Postmortem — Customer Support Chatbot Incident Review`
               <Sparkles className="w-5 h-5 text-indigo-600" />
               <h2 className="text-base font-bold text-gray-900">Paste Postmortem, Meeting Notes, or Experience Summary</h2>
             </div>
-            <button
-              onClick={handleLoadUserStoryExample}
-              className="text-xs text-blue-600 hover:text-blue-800 font-medium underline cursor-pointer"
-            >
-              Insert "Customer Support Chatbot" Example
-            </button>
           </div>
 
           <p className="text-xs text-gray-500">

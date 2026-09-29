@@ -62,7 +62,25 @@ export default function App() {
   };
 
   useEffect(() => {
+    const parseRoute = () => {
+      try {
+        const hash = window.location.hash.replace(/^#\/?/, '');
+        if (hash) {
+          const [route, queryString] = hash.split('?');
+          const params = new URLSearchParams(queryString || '');
+          const id = params.get('id');
+          if (route) setActiveTab(route);
+          if (route === 'historical-detail' && id) setSelectedProjectId(id);
+          if (route === 'proposal-analysis' && id) setSelectedProposalId(id);
+        }
+      } catch (_) {}
+    };
+
+    parseRoute();
     refreshAllData();
+
+    window.addEventListener('hashchange', parseRoute);
+    return () => window.removeEventListener('hashchange', parseRoute);
   }, []);
 
   const handleNavigate = (tab: string, entityId?: string) => {
@@ -73,6 +91,18 @@ export default function App() {
       setSelectedProposalId(entityId);
     }
     setActiveTab(tab);
+    try {
+      const hash = entityId ? `#${tab}?id=${entityId}` : `#${tab}`;
+      window.location.hash = hash;
+    } catch (_) {}
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleTabClick = (tab: string) => {
+    setActiveTab(tab);
+    try {
+      window.location.hash = `#${tab}`;
+    } catch (_) {}
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -96,7 +126,7 @@ export default function App() {
       {/* Top Navigation */}
       <Navbar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleTabClick}
         status={systemStatus}
         onRefreshStatus={refreshAllData}
         onOpenDemoModal={() => setIsDemoModalOpen(true)}

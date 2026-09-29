@@ -21,15 +21,9 @@ export const DecisionRecordModal: React.FC<DecisionRecordModalProps> = ({
   const [decision, setDecision] = useState<'Approved' | 'Rejected' | 'More Information Required' | 'Deferred'>(
     (proposal.decisionRecord?.decision as any) || 'Approved'
   );
-  const [decisionMaker, setDecisionMaker] = useState(proposal.decisionRecord?.decisionMaker || 'Alex Morgan, VP Operations');
-  const [reason, setReason] = useState(
-    proposal.decisionRecord?.reason ||
-    'Proposal adequately incorporates historical billing lessons with a mandatory escalation workflow.'
-  );
-  const [conditions, setConditions] = useState(
-    proposal.decisionRecord?.conditions ||
-    'Approval is strictly contingent on defining complex billing triggers before live launch.'
-  );
+  const [decisionMaker, setDecisionMaker] = useState(proposal.decisionRecord?.decisionMaker || '');
+  const [reason, setReason] = useState(proposal.decisionRecord?.reason || '');
+  const [conditions, setConditions] = useState(proposal.decisionRecord?.conditions || '');
   const [additionalNotes, setAdditionalNotes] = useState(proposal.decisionRecord?.additionalNotes || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -19,25 +19,17 @@ export const OutcomeModal: React.FC<OutcomeModalProps> = ({
   if (!isOpen || !proposal) return null;
 
   const [actualResult, setActualResult] = useState<'Successful' | 'Partially Successful' | 'Failed' | 'Cancelled'>('Partially Successful');
-  const [whatHappened, setWhatHappened] = useState(
-    'The AI Billing Assistant launched on the web portal. Routine charge inquiries were answered smoothly, but users grew impatient with the human escalation queue during peak Monday mornings.'
-  );
-  const [didPredictedRiskOccur, setDidPredictedRiskOccur] = useState(true);
-  const [assumptionsCorrect, setAssumptionsCorrect] = useState(
-    'FAQ containment was high (68%); clear boundaries prevented billing credits hallucinations.'
-  );
-  const [assumptionsWrong, setAssumptionsWrong] = useState(
-    'Assumed human support agents would handle escalations within 3 minutes; actual wait time was 14 minutes.'
-  );
-  const [whatWorked, setWhatWorked] = useState('Read-only schema guards and invoice line-item breakdown.');
-  const [whatFailed, setWhatFailed] = useState('Escalation handoff queue bottleneck under peak morning surges.');
-  const [actualRootCause, setActualRootCause] = useState('Support team staffing was not synchronized with bot launch volume.');
-  const [finalLesson, setFinalLesson] = useState(
-    'AI assistants that rely on human escalation require dedicated support agent scheduling, not shared tier-2 pool.'
-  );
-  const [futureAdvice, setFutureAdvice] = useState(
-    'Ensure reserved human capacity or dynamic throttling before launching customer-facing AI triage.'
-  );
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [whatHappened, setWhatHappened] = useState('');
+  const [didPredictedRiskOccur, setDidPredictedRiskOccur] = useState(false);
+  const [assumptionsCorrect, setAssumptionsCorrect] = useState('');
+  const [assumptionsWrong, setAssumptionsWrong] = useState('');
+  const [whatWorked, setWhatWorked] = useState('');
+  const [whatFailed, setWhatFailed] = useState('');
+  const [actualRootCause, setActualRootCause] = useState('');
+  const [finalLesson, setFinalLesson] = useState('');
+  const [futureAdvice, setFutureAdvice] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +46,8 @@ export const OutcomeModal: React.FC<OutcomeModalProps> = ({
       setError(null);
       await api.recordOutcome(proposal.id, {
         actualResult,
+        startDate: startDate.trim() || undefined,
+        endDate: endDate.trim() || undefined,
         whatHappened,
         didPredictedRiskOccur,
         assumptionsCorrect,
@@ -114,6 +108,33 @@ export const OutcomeModal: React.FC<OutcomeModalProps> = ({
                   {res}
                 </button>
               ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block font-semibold text-gray-700 mb-1">
+                Initiative Start Date
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. 2024-01-15 or Q1 2024"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold text-gray-700 mb-1">
+                Initiative End / Completion Date
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. 2024-06-30"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
           </div>
 

@@ -74,11 +74,12 @@ export class AnalysisService {
     // Also look up any experiences saved in PostgreSQL/local database to match by documentId or semantic relevance
     const allStoredExperiences = await db.getAllExperiences();
 
-    // Map recalled facts to stored historical experiences
-    const matchedEvidence: {
+    interface CanonicalEvidence {
       experienceId?: string;
       projectName: string;
       status: string;
+      startDate?: string;
+      endDate?: string;
       problemGoal: string;
       whatWasAttempted: string;
       approachUsed: string;
@@ -93,17 +94,38 @@ export class AnalysisService {
       hindsightMemoryId?: string;
       whyRecalled: string;
       relevanceScore: number;
-    }[] = [];
+    }
 
-    // 1. Process Hindsight recalled memories
+    const canonicalEvidenceMap = new Map<string, CanonicalEvidence>();
+    const cleanNorm = (str: string) => (str || '').toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const cleanProj = (str: string) => cleanNorm(str).replace(/\b(system|project|initiative|tool|app|application|platform|assistant|service)\b/g, '').replace(/\s+/g, ' ').trim();
+
+    // 1. Process Hindsight recalled memories and map to unique canonical entities
     for (const fact of rawRecalledFacts) {
-      // Check if documentId corresponds to an experience in database
-      const matchedExp = allStoredExperiences.find(e => e.id === fact.documentId || e.hindsightMemoryId === fact.id);
+      // Find matching stored experience in database
+      const matchedExp = allStoredExperiences.find(e => 
+        e.id === fact.documentId || 
+        (e.hindsightMemoryId && e.hindsightMemoryId === fact.id) ||
+        (fact.metadata?.experienceId && e.id === fact.metadata.experienceId) ||
+        (fact.metadata?.projectName && cleanNorm(e.project?.name) === cleanNorm(fact.metadata.projectName)) ||
+        (cleanProj(e.project?.name).length >= 4 && cleanNorm(fact.text).includes(cleanProj(e.project?.name)))
+      );
+
       if (matchedExp) {
-        matchedEvidence.push({
+        const canonicalKey = `exp_${matchedExp.id}`;
+        if (canonicalEvidenceMap.has(canonicalKey)) {
+          const existing = canonicalEvidenceMap.get(canonicalKey)!;
+          existing.relevanceScore = Math.max(existing.relevanceScore, fact.score || 0.88);
+          if (!existing.hindsightMemoryId && fact.id) existing.hindsightMemoryId = fact.id;
+          continue;
+        }
+
+        canonicalEvidenceMap.set(canonicalKey, {
           experienceId: matchedExp.id,
           projectName: matchedExp.project?.name || 'Historical Project',
           status: matchedExp.project?.status || 'Unknown',
+          startDate: matchedExp.project?.startDate,
+          endDate: matchedExp.project?.endDate,
           problemGoal: matchedExp.problemGoal,
           whatWasAttempted: matchedExp.whatWasAttempted,
           approachUsed: matchedExp.approachUsed,
@@ -115,19 +137,30 @@ export class AnalysisService {
           lessonsLearned: matchedExp.lessonsLearned,
           futureConditions: matchedExp.futureConditions,
           source: matchedExp.source,
-          hindsightMemoryId: fact.id,
-          whyRecalled: `Retrieved by Hindsight TEMPR retrieval matching query terms in "${proposal.title}".`,
+          hindsightMemoryId: fact.id || matchedExp.hindsightMemoryId,
+          whyRecalled: `Retrieved by Hindsight organizational memory matching query terms in "${proposal.title}".`,
           relevanceScore: fact.score || 0.88,
         });
       } else {
-        matchedEvidence.push({
-          projectName: fact.metadata?.projectName || 'Hindsight Memory Precedent',
+        const pName = fact.metadata?.projectName || 'Hindsight Memory Precedent';
+        const canonicalKey = `mem_${cleanProj(pName) || fact.id}`;
+
+        if (canonicalEvidenceMap.has(canonicalKey)) {
+          const existing = canonicalEvidenceMap.get(canonicalKey)!;
+          existing.relevanceScore = Math.max(existing.relevanceScore, fact.score || 0.82);
+          continue;
+        }
+
+        canonicalEvidenceMap.set(canonicalKey, {
+          projectName: pName,
           status: fact.metadata?.status || 'Previous Attempt',
+          startDate: fact.metadata?.startDate,
+          endDate: fact.metadata?.endDate,
           problemGoal: fact.context || 'Historical experience recorded in memory bank',
           whatWasAttempted: fact.text,
           approachUsed: 'Refer to recorded memory context',
           whatHappened: fact.text,
-          lessonsLearned: 'Extracted from organizational memory bank',
+          lessonsLearned: fact.metadata?.lessonsLearned || 'Extracted from organizational memory bank',
           source: fact.metadata?.source || 'Hindsight Memory Bank',
           hindsightMemoryId: fact.id,
           whyRecalled: 'Retrieved by Hindsight semantic & graph memory search.',
@@ -136,40 +169,45 @@ export class AnalysisService {
       }
     }
 
-    // 2. If Hindsight is not configured or in transition, check if database has experiences that match query terms
-    if (matchedEvidence.length === 0 && allStoredExperiences.length > 0) {
-      // Find database matches based on domain keywords to prevent false "empty" when Hindsight credentials are being set up
+    // 2. If Hindsight is not configured or returned no memories, check stored database experiences
+    if (canonicalEvidenceMap.size === 0 && allStoredExperiences.length > 0) {
       const queryLower = recallQuery.toLowerCase();
+      const keywords = queryLower.split(/\W+/).filter(w => w.length > 3);
+
       for (const exp of allStoredExperiences) {
         const textToMatch = `${exp.project?.name} ${exp.problemGoal} ${exp.whatWasAttempted} ${exp.approachUsed} ${exp.whatHappened} ${exp.lessonsLearned}`.toLowerCase();
-        
-        // Check for meaningful overlapping words (e.g. "chatbot", "billing", "customer", "ai", "cost", "cloud")
-        const keywords = queryLower.split(/\W+/).filter(w => w.length > 3);
         const matchCount = keywords.filter(k => textToMatch.includes(k)).length;
-        
+
         if (matchCount >= 2 || (keywords.length <= 3 && matchCount >= 1)) {
-          matchedEvidence.push({
-            experienceId: exp.id,
-            projectName: exp.project?.name || 'Historical Project',
-            status: exp.project?.status || 'Unknown',
-            problemGoal: exp.problemGoal,
-            whatWasAttempted: exp.whatWasAttempted,
-            approachUsed: exp.approachUsed,
-            whatHappened: exp.whatHappened,
-            whatWorked: exp.whatWorked,
-            whatFailed: exp.whatFailed,
-            whyItFailed: exp.whyItFailed,
-            rootCause: exp.rootCause,
-            lessonsLearned: exp.lessonsLearned,
-            futureConditions: exp.futureConditions,
-            source: exp.source,
-            hindsightMemoryId: exp.hindsightMemoryId,
-            whyRecalled: `Domain keyword match on historical initiative with ${matchCount} intersecting concepts.`,
-            relevanceScore: 0.75 + Math.min(0.2, matchCount * 0.05),
-          });
+          const canonicalKey = `exp_${exp.id}`;
+          if (!canonicalEvidenceMap.has(canonicalKey)) {
+            canonicalEvidenceMap.set(canonicalKey, {
+              experienceId: exp.id,
+              projectName: exp.project?.name || 'Historical Project',
+              status: exp.project?.status || 'Unknown',
+              startDate: exp.project?.startDate,
+              endDate: exp.project?.endDate,
+              problemGoal: exp.problemGoal,
+              whatWasAttempted: exp.whatWasAttempted,
+              approachUsed: exp.approachUsed,
+              whatHappened: exp.whatHappened,
+              whatWorked: exp.whatWorked,
+              whatFailed: exp.whatFailed,
+              whyItFailed: exp.whyItFailed,
+              rootCause: exp.rootCause,
+              lessonsLearned: exp.lessonsLearned,
+              futureConditions: exp.futureConditions,
+              source: exp.source,
+              hindsightMemoryId: exp.hindsightMemoryId,
+              whyRecalled: `Domain keyword match on historical initiative with ${matchCount} intersecting concepts.`,
+              relevanceScore: 0.75 + Math.min(0.2, matchCount * 0.05),
+            });
+          }
         }
       }
     }
+
+    const matchedEvidence = Array.from(canonicalEvidenceMap.values());
 
     // Step 4: If no precedents exist, DO NOT invent!
     if (matchedEvidence.length === 0) {
@@ -211,6 +249,8 @@ export class AnalysisService {
         id: e.experienceId || e.hindsightMemoryId || 'temp',
         projectName: e.projectName,
         status: e.status,
+        startDate: e.startDate,
+        endDate: e.endDate,
         problemGoal: e.problemGoal,
         whatWasAttempted: e.whatWasAttempted,
         approachUsed: e.approachUsed,
@@ -218,7 +258,7 @@ export class AnalysisService {
         whatFailed: e.whatFailed,
         whyItFailed: e.whyItFailed,
         rootCause: e.rootCause,
-        lessonsLearned: e.lessonsLearned,
+        lessonsLearned: e.lessonsLearned || '',
         futureConditions: e.futureConditions,
         source: e.source,
       }))
@@ -230,7 +270,9 @@ export class AnalysisService {
       hindsightMemoryId: e.hindsightMemoryId,
       relevanceScore: e.relevanceScore,
       whyRecalled: e.whyRecalled,
-      summary: `${e.projectName} (${e.status}): ${e.lessonsLearned}`,
+      summary: e.lessonsLearned && e.lessonsLearned.trim().length > 0
+        ? `${e.projectName} (${e.status}): ${e.lessonsLearned}`
+        : `${e.projectName} (${e.status}): ${e.whatHappened || e.whatWasAttempted}`,
       content: JSON.stringify(e),
     }));
 
@@ -265,7 +307,7 @@ export class AnalysisService {
       success: true,
       precedentFound: true,
       memoryStatus,
-      statusMessage: `Found ${matchedEvidence.length} relevant historical experiences. Precedent report ready.`,
+      statusMessage: `Found ${matchedEvidence.length} relevant historical ${matchedEvidence.length === 1 ? 'experience' : 'experiences'}. Precedent report ready.`,
       memoriesRecalledCount: matchedEvidence.length,
       unresolvedQuestions: comparisonResult.unresolvedQuestions,
       comparison: comparisonResult,
@@ -276,10 +318,14 @@ export class AnalysisService {
         relevanceScore: e.relevanceScore,
         projectName: e.projectName,
         status: e.status,
+        startDate: e.startDate,
+        endDate: e.endDate,
         whyRecalled: e.whyRecalled,
-        summary: `${e.projectName} (${e.status}): ${e.lessonsLearned}`,
+        summary: e.lessonsLearned && e.lessonsLearned.trim().length > 0
+          ? `${e.projectName} (${e.status}): ${e.lessonsLearned}`
+          : `${e.projectName} (${e.status}): ${e.whatHappened || e.whatWasAttempted}`,
         source: e.source,
-        lessonsLearned: e.lessonsLearned,
+        lessonsLearned: e.lessonsLearned || '',
       })),
       error: recallErrorMessage,
     };

@@ -17,11 +17,14 @@ export const DemoModal: React.FC<DemoModalProps> = ({
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showConfirmReset, setShowConfirmReset] = useState(false);
 
   const handleLoadDemo = async () => {
     try {
       setLoading(true);
       setMessage(null);
+      setError(null);
       const res = await api.loadDemoData();
       setMessage(res.message);
       onRefresh();
@@ -29,20 +32,18 @@ export const DemoModal: React.FC<DemoModalProps> = ({
         onClose();
       }, 1200);
     } catch (e: any) {
-      alert(`Error loading demo data: ${e.message}`);
+      setError(`Error loading demo data: ${e.message}`);
     } finally {
       setLoading(false);
     }
   };
 
   const handleClearData = async () => {
-    if (!confirm('Are you sure you want to reset the database to an empty state? This removes all proposals and experiences.')) {
-      return;
-    }
-
     try {
       setLoading(true);
       setMessage(null);
+      setError(null);
+      setShowConfirmReset(false);
       const res = await api.clearAllData();
       setMessage(res.message);
       onRefresh();
@@ -50,7 +51,7 @@ export const DemoModal: React.FC<DemoModalProps> = ({
         onClose();
       }, 1200);
     } catch (e: any) {
-      alert(`Error clearing data: ${e.message}`);
+      setError(`Error clearing data: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -82,8 +83,15 @@ export const DemoModal: React.FC<DemoModalProps> = ({
 
         {message && (
           <div className="p-2.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>{message}</span>
+          </div>
+        )}
+
+        {error && (
+          <div className="p-2.5 rounded bg-rose-50 text-rose-800 border border-rose-200 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{error}</span>
           </div>
         )}
 
@@ -97,14 +105,36 @@ export const DemoModal: React.FC<DemoModalProps> = ({
             {loading ? 'Processing...' : 'Load Benchmark Historical Precedents'}
           </button>
 
-          <button
-            onClick={handleClearData}
-            disabled={loading}
-            className="w-full py-2.5 px-4 bg-white border border-rose-300 hover:bg-rose-50 disabled:opacity-50 text-rose-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-2"
-          >
-            <Trash2 className="w-4 h-4 text-rose-600" />
-            Reset Database to Clean Empty State
-          </button>
+          {showConfirmReset ? (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg space-y-2">
+              <p className="text-xs text-rose-800 font-medium">Are you sure? This removes all proposals and experiences.</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleClearData}
+                  disabled={loading}
+                  className="flex-1 py-1.5 px-3 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded cursor-pointer"
+                >
+                  Yes, Reset Everything
+                </button>
+                <button
+                  onClick={() => setShowConfirmReset(false)}
+                  disabled={loading}
+                  className="py-1.5 px-3 bg-white border border-gray-300 text-gray-700 text-xs font-semibold rounded cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowConfirmReset(true)}
+              disabled={loading}
+              className="w-full py-2.5 px-4 bg-white border border-rose-300 hover:bg-rose-50 disabled:opacity-50 text-rose-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-2"
+            >
+              <Trash2 className="w-4 h-4 text-rose-600" />
+              Reset Database to Clean Empty State
+            </button>
+          )}
         </div>
       </div>
     </div>

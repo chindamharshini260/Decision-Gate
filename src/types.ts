@@ -95,10 +95,21 @@ export interface RecalledPrecedent {
   relevanceScore?: number;
   projectName: string;
   status: string;
+  startDate?: string;
+  endDate?: string;
+  problemGoal?: string;
+  whatWasAttempted?: string;
+  approachUsed?: string;
+  whatHappened?: string;
+  whatWorked?: string;
+  whatFailed?: string;
+  whyItFailed?: string;
+  rootCause?: string;
   whyRecalled: string;
   summary: string;
   source: string;
   lessonsLearned: string;
+  additionalEvidence?: string[];
   historicalExperience?: HistoricalExperience & { project?: HistoricalProject };
 }
 

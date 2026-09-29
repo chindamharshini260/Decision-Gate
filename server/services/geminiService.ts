@@ -9,6 +9,13 @@ Never invent historical projects, decisions, failures, successes, employees, dat
 
 Historical facts must come from the provided database records and/or actual Hindsight recall results.
 
+DATE & FACT INTEGRITY RULES (MANDATORY):
+- NEVER invent, infer, or assume historical dates.
+- NEVER use today's date, current system date, or current year (e.g. September 29, 2026) as a historical event date, project date, or failure date.
+- Historical dates and timeframes must come SOLELY from the documented historical precedent (e.g. "2025-01 to 2025-06"). If no timeframe is documented in the historical record, you MUST state "Timeframe not specified in historical record".
+- Never write statements like "project '...' failed on September 29, 2026" or similar today-date fabrications.
+- Each provided historical precedent is a single unique real-world initiative. Do NOT create duplicate references or multiple copies of the same project.
+
 Clearly distinguish:
 1. Historical fact
 2. Current proposal information
@@ -131,6 +138,33 @@ class GeminiService {
     return this.ai;
   }
 
+  private async generateWithFallback(params: { contents: any; config: any }) {
+    const ai = this.getClient();
+    const candidateModels = [
+      'gemini-flash-latest',
+      'gemini-3.1-flash-lite',
+      'gemini-3.1-pro-preview',
+      'gemini-3.8-flash',
+    ];
+
+    let lastError: any = null;
+    for (const model of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: params.contents,
+          config: params.config,
+        });
+        return response;
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`Model ${model} call failed (${err?.message?.slice(0, 120)}), trying next candidate model...`);
+        continue;
+      }
+    }
+    throw lastError;
+  }
+
   public getStatus() {
     return {
       isAvailable: Boolean(process.env.GEMINI_API_KEY),
@@ -152,8 +186,7 @@ Text to extract from:
 ${rawText}
 """`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await this.generateWithFallback({
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
@@ -208,8 +241,7 @@ Text:
 ${rawText}
 """`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await this.generateWithFallback({
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
@@ -256,6 +288,8 @@ ${rawText}
       id: string;
       projectName: string;
       status: string;
+      startDate?: string;
+      endDate?: string;
       problemGoal: string;
       whatWasAttempted: string;
       approachUsed: string;
@@ -289,8 +323,9 @@ CURRENT PROPOSAL:
 
     const historicalContext = recalledEvidence.map((e, idx) => `
 HISTORICAL PRECEDENT #${idx + 1}:
-- Project: ${e.projectName}
+- Canonical Project Name: ${e.projectName}
 - Outcome / Status: ${e.status}
+- Documented Timeframe / Execution Period: ${e.startDate || e.endDate ? `${e.startDate || 'Unknown'} to ${e.endDate || 'Unknown'}` : 'Not specified in historical record'}
 - Original Goal: ${e.problemGoal}
 - What Was Attempted: ${e.whatWasAttempted}
 - Approach Used: ${e.approachUsed}
@@ -308,7 +343,7 @@ HISTORICAL PRECEDENT #${idx + 1}:
 ${proposalContext}
 
 ========================================
-HISTORICAL EXPERIENCES RECALLED:
+HISTORICAL EXPERIENCES RECALLED (CANONICAL UNIQUE RECORDS):
 ${historicalContext}
 ========================================
 
@@ -322,11 +357,12 @@ Analyze:
 7. Unresolved Questions: Crucial questions the human manager must verify before making an approval decision.
 8. Evidence Quality and AI Inference Notes.
 
-CRITICAL INSTRUCTION:
-Do NOT output "Approve" or "Reject". Use objective, evidence-based language.`;
+CRITICAL INSTRUCTIONS:
+- Do NOT output "Approve" or "Reject". Use objective, evidence-based language.
+- DATE INTEGRITY: NEVER state or infer that a past project failed on today's date or current date (e.g. September 29, 2026). If the historical precedent has a timeframe (e.g. 2025-01 to 2025-06), cite ONLY that timeframe. If no timeframe is in the historical record, say "Timeframe not specified".
+- ENTITY INTEGRITY: Treat each recalled precedent as ONE real-world historical initiative. Do NOT duplicate or split it.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await this.generateWithFallback({
       contents: prompt,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,

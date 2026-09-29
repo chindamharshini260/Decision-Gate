@@ -10,6 +10,8 @@ export interface RetainExperiencePayload {
   experienceId: string;
   projectName: string;
   department?: string;
+  startDate?: string;
+  endDate?: string;
   status: string;
   problemGoal: string;
   whatWasAttempted: string;
@@ -139,6 +141,7 @@ class HindsightService {
         `Project / Initiative: "${payload.projectName}"`,
         `Department: ${payload.department || 'General'}`,
         `Historical Outcome / Status: ${payload.status}`,
+        payload.startDate || payload.endDate ? `Timeframe / Execution Period: ${payload.startDate || 'Unknown'} to ${payload.endDate || 'Unknown'}` : null,
         `Problem / Goal Attempted: ${payload.problemGoal}`,
         `What Was Attempted: ${payload.whatWasAttempted}`,
         `Approach Used: ${payload.approachUsed}`,
@@ -153,7 +156,7 @@ class HindsightService {
         `Documented Source: ${payload.source}`,
       ].filter(Boolean).join('\n\n');
 
-      const context = `Decision Gate Organizational Precedent for initiative: ${payload.projectName}. Status: ${payload.status}. Source: ${payload.source}`;
+      const context = `Decision Gate Organizational Precedent for initiative: ${payload.projectName}. Status: ${payload.status}. Source: ${payload.source}${payload.startDate || payload.endDate ? ` (Period: ${payload.startDate || ''} to ${payload.endDate || ''})` : ''}`;
 
       const res = await this.client.retain(this.config.bankId, content, {
         documentId: payload.experienceId,
@@ -168,6 +171,8 @@ class HindsightService {
           status: payload.status,
           experienceId: payload.experienceId,
           source: payload.source,
+          ...(payload.startDate ? { startDate: payload.startDate } : {}),
+          ...(payload.endDate ? { endDate: payload.endDate } : {}),
         },
       });
 
@@ -218,21 +223,37 @@ class HindsightService {
 
       // The SDK returns structured facts or items
       const rawFacts = res?.facts || res?.results || res?.memories || [];
-      const results: RecallResultItem[] = rawFacts.map((fact: any) => ({
-        id: fact.id || fact.memory_id || fact.fact_id || String(Math.random()),
-        text: fact.text || fact.content || fact.summary || JSON.stringify(fact),
-        type: fact.type || 'experience',
-        context: fact.context || fact.provenance,
-        score: fact.score || fact.relevance_score || 0.85,
-        metadata: fact.metadata || {},
-        tags: fact.tags || [],
-        documentId: fact.document_id || fact.documentId,
-      }));
+      const seenIds = new Set<string>();
+      const seenTexts = new Set<string>();
+      const results: RecallResultItem[] = [];
+
+      for (const fact of rawFacts) {
+        const id = fact.id || fact.memory_id || fact.fact_id;
+        const text = fact.text || fact.content || fact.summary || (typeof fact === 'string' ? fact : JSON.stringify(fact));
+        const normalized = text.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+
+        if (id && seenIds.has(id)) continue;
+        if (normalized.length > 20 && seenTexts.has(normalized)) continue;
+
+        if (id) seenIds.add(id);
+        if (normalized.length > 20) seenTexts.add(normalized);
+
+        results.push({
+          id: id || `mem_${results.length + 1}`,
+          text,
+          type: fact.type || 'experience',
+          context: fact.context || fact.provenance,
+          score: fact.score || fact.relevance_score || 0.85,
+          metadata: fact.metadata || {},
+          tags: fact.tags || [],
+          documentId: fact.document_id || fact.documentId,
+        });
+      }
 
       return {
         success: true,
         isAvailable: true,
-        statusMessage: results.length > 0 ? `Retrieved ${results.length} historical experiences from Hindsight.` : 'Hindsight recall returned 0 matching memories.',
+        statusMessage: results.length > 0 ? `Retrieved ${results.length} unique historical memories from Hindsight.` : 'Hindsight recall returned 0 matching memories.',
         bankId: this.config.bankId,
         results: results.slice(0, limit),
         rawCount: results.length,

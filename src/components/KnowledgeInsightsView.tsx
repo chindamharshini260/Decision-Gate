@@ -49,7 +49,7 @@ export const KnowledgeInsightsView: React.FC<KnowledgeInsightsViewProps> = ({ on
     return (
       <div className="max-w-3xl mx-auto py-12 text-center bg-white border border-dashed border-gray-300 rounded-xl p-8 space-y-3">
         <BarChart3 className="w-10 h-10 mx-auto text-gray-400" />
-        <h2 className="text-base font-bold text-gray-900">Not enough organizational data yet.</h2>
+        <h2 className="text-base font-bold text-gray-900">No historical organizational data available.</h2>
         <p className="text-sm text-gray-500 max-w-md mx-auto">
           {insights?.message || 'Add historical experiences and run proposal evaluations to build organizational memory analytics.'}
         </p>

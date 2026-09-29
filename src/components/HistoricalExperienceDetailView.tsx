@@ -31,6 +31,7 @@ export const HistoricalExperienceDetailView: React.FC<HistoricalExperienceDetail
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryingSync, setRetryingSync] = useState(false);
+  const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -53,12 +54,13 @@ export const HistoricalExperienceDetailView: React.FC<HistoricalExperienceDetail
     if (!exp) return;
     try {
       setRetryingSync(true);
+      setSyncErrorMessage(null);
       await api.retryHindsightSync(exp.id);
       const updated = await api.getHistoricalProjectById(projectId);
       setProject(updated);
       onRefresh();
     } catch (e: any) {
-      alert(`Sync retry failed: ${e.message}`);
+      setSyncErrorMessage(`Sync retry failed: ${e.message}`);
     } finally {
       setRetryingSync(false);
     }
@@ -161,7 +163,11 @@ export const HistoricalExperienceDetailView: React.FC<HistoricalExperienceDetail
             </div>
             <div>
               <span className="text-gray-400 block">Timeline:</span>
-              <span className="text-gray-700">{project.startDate || 'N/A'} {project.endDate ? `to ${project.endDate}` : ''}</span>
+              <span className="text-gray-700">
+                {project.startDate || project.endDate 
+                  ? `${project.startDate || ''} ${project.endDate ? `to ${project.endDate}` : ''}`.trim() 
+                  : 'Historical dates not specified in source record'}
+              </span>
             </div>
             <div>
               <span className="text-gray-400 block">Source Attribution:</span>
@@ -172,6 +178,18 @@ export const HistoricalExperienceDetailView: React.FC<HistoricalExperienceDetail
               <span className="font-mono text-gray-700">{exp?.hindsightMemoryId || 'Local Storage Only'}</span>
             </div>
           </div>
+
+          {syncErrorMessage && (
+            <div className="mt-4 p-3 bg-amber-50 text-amber-900 border border-amber-200 rounded-lg text-xs flex items-center justify-between">
+              <span>{syncErrorMessage}</span>
+              <button 
+                onClick={() => setSyncErrorMessage(null)} 
+                className="text-amber-700 hover:text-amber-900 font-bold ml-2 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

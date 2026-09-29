@@ -30,6 +30,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
   const [content, setContent] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Active extracted preview modal/panel
   const [extractingId, setExtractingId] = useState<string | null>(null);
@@ -46,6 +47,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
     try {
       setUploading(true);
       setUploadError(null);
+      setActionError(null);
       await api.uploadDocument(docName, docType, content);
       setDocName('');
       setContent('');
@@ -61,10 +63,11 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
     try {
       setExtractingId(doc.id);
       setSelectedDoc(doc);
+      setActionError(null);
       const res = await api.extractDocument(doc.id);
       setActiveExtracted(res.extracted);
     } catch (err: any) {
-      alert(`Extraction failed: ${err.message}`);
+      setActionError(`Extraction failed: ${err.message}`);
     } finally {
       setExtractingId(null);
     }
@@ -73,6 +76,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
   const handleApproveIntoMemory = async () => {
     if (!activeExtracted || !selectedDoc) return;
     try {
+      setActionError(null);
       const projectPayload = {
         name: activeExtracted.projectName || selectedDoc.name,
         projectType: activeExtracted.projectType || 'General',
@@ -102,7 +106,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
       onRefresh();
       onNavigate('historical-projects');
     } catch (err: any) {
-      alert(`Approval error: ${err.message}`);
+      setActionError(`Approval error: ${err.message}`);
     }
   };
 
@@ -118,6 +122,15 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
           Upload historical project postmortems, retrospective memos, and decision documents.
           Gemini extracts organizational experiences, which you review before retaining into Hindsight memory.
         </p>
+
+        {actionError && (
+          <div className="mt-3 p-3 bg-rose-50 text-rose-800 border border-rose-200 rounded-lg text-xs flex items-center justify-between">
+            <span>{actionError}</span>
+            <button onClick={() => setActionError(null)} className="font-bold text-rose-600 hover:text-rose-800 ml-2 cursor-pointer">
+              ✕
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Upload Form */}

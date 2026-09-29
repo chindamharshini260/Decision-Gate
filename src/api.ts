@@ -103,11 +103,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ text }),
     }),
-  createProposal: (data: Partial<Proposal>) =>
-    request<Proposal>('/proposals', {
+  createProposal: async (data: Partial<Proposal>): Promise<Proposal> => {
+    const res = await request<any>('/proposals', {
       method: 'POST',
       body: JSON.stringify(data),
-    }),
+    });
+    if (res && res.proposal) {
+      return res.proposal;
+    }
+    return res;
+  },
 
   // Precedent Analysis
   runPrecedentAnalysis: (proposalId: string) =>

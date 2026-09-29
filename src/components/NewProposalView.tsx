@@ -48,26 +48,6 @@ export const NewProposalView: React.FC<NewProposalViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Quick fill user story proposal
-  const handleLoadUserStoryProposal = () => {
-    setNaturalLanguageText(
-      `Proposal: AI Billing Assistant
-Submitted By: Sarah Chen, Lead Product Manager
-Department: Customer Operations
-Problem Being Solved: Customer support tickets regarding invoice explanations, subscription upgrades, and billing inquiries take an average of 42 minutes to resolve.
-Proposed Solution: Deploy a specialized AI Billing Assistant scoped to answer billing FAQs, explain charge itemization, and provide a clear human escalation workflow for complex disputes or charges over $100.
-Target Users: Paying enterprise and self-serve SaaS subscribers.
-Expected Outcome: Reduce tier-1 billing ticket volume by 35% while maintaining customer CSAT above 92%.
-Technology / Approach: Fine-tuned LLM connected to read-only invoice schemas with deterministic human escalation rules.
-Estimated Scope: 8 weeks pilot on web portal.
-Known Risks: Incorrect interpretation of promotional discounts; customer confusion on pro-rated refunds.
-Dependencies: Billing API integration and Support Tier-2 escalation queue.
-Why We Believe It Will Work: Unlike prior broad chatbots, this assistant has a bounded scope (billing explanations only) and explicit human escalation rules.
-What Is Different: Current proposal includes human escalation for complex cases, limits the scope to billing FAQs, and forbids automatic debit adjustments.
-Success Criteria: Zero unauthorized credit adjustments, < 3% escalation bounce rate.`
-    );
-  };
-
   const handleExtractWithAI = async () => {
     if (!naturalLanguageText.trim()) {
       setExtractError('Please enter a proposal pitch or document text.');
@@ -102,44 +82,79 @@ Success Criteria: Zero unauthorized credit adjustments, < 3% escalation bounce r
     }
   };
 
+  const handleLoadTestProposal = () => {
+    setTitle('AI Demand Forecasting for Inventory Planning');
+    setSubmittedBy('Operations Team');
+    setProblemBeingSolved('The organization wants to reduce inventory shortages and excess stock by predicting future product demand more accurately.');
+    setProposedSolution('Build an AI demand forecasting system that predicts future product demand using historical sales patterns and recommends appropriate inventory quantities.');
+    setTargetUsers('Inventory Planners & Operations Managers');
+    setExpectedOutcome('Improve inventory planning, reduce stockouts and excess inventory, and help teams make better purchasing decisions.');
+    setTechnologyApproach('Machine learning demand forecasting model using historical sales patterns, seasonal data, and inventory recommendation algorithms.');
+    setKnownRisks('Limited historical data for new products, irregular demand patterns, and model explainability.');
+    setDependencies('Historical sales records, product catalog, and ERP inventory levels.');
+    setWhyBelieveItWillWork('Unlike prior attempts, this approach uses differentiated strategies based on demand stability, uncertainty estimation, and human review for irregular products.');
+    setWhatIsDifferentFromPrevious('Provides uncertainty scoring and enforces human-in-the-loop review for products with limited historical data.');
+    setSuccessCriteria('Reduced stockouts, reduced excess inventory, and high forecast adoption by operations planners.');
+    setInputMode('manual');
+    setSubmitError(null);
+  };
+
   const handleSubmit = async (andAnalyze = false) => {
     if (!title.trim() || !problemBeingSolved.trim() || !proposedSolution.trim()) {
       setSubmitError('Title, Problem Being Solved, and Proposed Solution are mandatory.');
       return;
     }
 
+    if (isSubmitting) return;
+
     try {
       setIsSubmitting(true);
       setSubmitError(null);
 
       const payload = {
-        title,
-        submittedBy: submittedBy || 'Staff Member',
+        title: title.trim(),
+        submittedBy: (submittedBy || 'Project Lead').trim(),
         departmentId: departmentId || undefined,
-        problemBeingSolved,
-        proposedSolution,
-        targetUsers: targetUsers || 'Organization Users',
-        expectedOutcome: expectedOutcome || 'Positive business impact',
-        technologyApproach: technologyApproach || 'Standard Implementation',
-        estimatedScope,
-        knownRisks,
-        dependencies,
-        whyBelieveItWillWork,
-        whatIsDifferentFromPrevious,
-        successCriteria,
+        problemBeingSolved: problemBeingSolved.trim(),
+        proposedSolution: proposedSolution.trim(),
+        targetUsers: (targetUsers || 'Organization Users').trim(),
+        expectedOutcome: (expectedOutcome || 'Positive business impact').trim(),
+        technologyApproach: (technologyApproach || 'Standard Implementation').trim(),
+        estimatedScope: estimatedScope?.trim(),
+        knownRisks: knownRisks?.trim(),
+        dependencies: dependencies?.trim(),
+        whyBelieveItWillWork: whyBelieveItWillWork?.trim(),
+        whatIsDifferentFromPrevious: whatIsDifferentFromPrevious?.trim(),
+        successCriteria: successCriteria?.trim(),
         rawText: naturalLanguageText || undefined,
       };
 
-      const created = await api.createProposal(payload);
+      // 1. SAVE THE PROPOSAL FIRST to PostgreSQL / Database
+      const savedProposal = await api.createProposal(payload);
+      if (!savedProposal || !savedProposal.id) {
+        throw new Error('Proposal could not be saved. Please try again.');
+      }
+
+      const proposalId = savedProposal.id;
       onRefresh();
 
       if (andAnalyze) {
-        onNavigate('proposal-analysis', created.id);
+        // Run Precedent Analysis Pipeline with persistent Proposal ID
+        try {
+          await api.runPrecedentAnalysis(proposalId);
+          onRefresh();
+          onNavigate('proposal-analysis', proposalId);
+        } catch (analysisErr: any) {
+          // If Gemini fails: Keep the proposal, show message and navigate to proposal
+          console.warn('AI Precedent analysis failed after proposal was saved:', analysisErr);
+          onRefresh();
+          onNavigate('proposal-analysis', proposalId);
+        }
       } else {
         onNavigate('proposals');
       }
     } catch (e: any) {
-      setSubmitError(e.message || 'Failed to submit proposal.');
+      setSubmitError(e.message || 'Proposal could not be saved. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -183,12 +198,6 @@ Success Criteria: Zero unauthorized credit adjustments, < 3% escalation bounce r
               <Sparkles className="w-5 h-5 text-indigo-600" />
               <h2 className="text-base font-bold text-gray-900">Natural Language Proposal Pitch</h2>
             </div>
-            <button
-              onClick={handleLoadUserStoryProposal}
-              className="text-xs text-blue-600 hover:text-blue-800 font-medium underline cursor-pointer"
-            >
-              Insert "AI Billing Assistant" Example
-            </button>
           </div>
 
           <p className="text-xs text-gray-500">
@@ -236,9 +245,18 @@ Success Criteria: Zero unauthorized credit adjustments, < 3% escalation bounce r
 
       {(inputMode === 'manual' || extractedReviewActive) && (
         <div className="bg-white border border-gray-200 rounded-xl p-6 sm:p-8 shadow-xs space-y-6">
-          <div className="border-b border-gray-100 pb-4">
-            <h2 className="text-base font-bold text-gray-900">Proposal Scope & Sponsorship</h2>
-            <p className="text-xs text-gray-500">Provide the proposal details for precedent matching.</p>
+          <div className="border-b border-gray-100 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <h2 className="text-base font-bold text-gray-900">Proposal Scope & Sponsorship</h2>
+              <p className="text-xs text-gray-500">Provide the proposal details for precedent matching.</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleLoadTestProposal}
+              className="text-xs px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded border border-slate-300 transition-colors cursor-pointer self-start sm:self-auto"
+            >
+              Insert Test Proposal (Demand Forecasting)
+            </button>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

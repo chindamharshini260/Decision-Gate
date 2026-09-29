@@ -208,7 +208,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="w-14 h-14 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-4">
             <Database className="w-7 h-7" />
           </div>
-          <h3 className="text-lg font-bold text-gray-900">Your organizational memory is empty.</h3>
+          <h3 className="text-lg font-bold text-gray-900">No historical organizational data available.</h3>
           <p className="mt-2 text-sm text-gray-600 max-w-md mx-auto">
             Add your first historical project or postmortem report to begin building organizational memory.
             Decision Gate never creates fake records by default.

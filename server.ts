@@ -13,7 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -157,6 +157,8 @@ app.post('/api/historical-projects', async (req: Request, res: Response) => {
         experienceId: saved.experience.id,
         projectName: saved.project.name,
         department: project.departmentId,
+        startDate: saved.project.startDate,
+        endDate: saved.project.endDate,
         status: saved.project.status,
         problemGoal: saved.experience.problemGoal,
         whatWasAttempted: saved.experience.whatWasAttempted,
@@ -214,6 +216,9 @@ app.post('/api/experiences/:id/retry-hindsight-sync', async (req: Request, res: 
     const retainResult = await hindsightService.retainHistoricalExperience({
       experienceId: exp.id,
       projectName: exp.project.name,
+      department: exp.project.departmentId,
+      startDate: exp.project.startDate,
+      endDate: exp.project.endDate,
       status: exp.project.status,
       problemGoal: exp.problemGoal,
       whatWasAttempted: exp.whatWasAttempted,
@@ -314,13 +319,51 @@ app.post('/api/extract/proposal', async (req: Request, res: Response) => {
 app.post('/api/proposals', async (req: Request, res: Response) => {
   try {
     const proposalData = req.body;
-    if (!proposalData.title || !proposalData.problemBeingSolved || !proposalData.proposedSolution) {
-      return res.status(400).json({ error: 'Title, problem being solved, and proposed solution are required.' });
+    const title = proposalData.title?.trim();
+    const problemBeingSolved = (proposalData.problemBeingSolved || proposalData.problem || proposalData.problemGoal)?.trim();
+    const proposedSolution = (proposalData.proposedSolution || proposalData.solution || proposalData.whatWasAttempted)?.trim();
+    const submittedBy = (proposalData.submittedBy || proposalData.submitter || 'Project Lead')?.trim();
+    const departmentId = proposalData.departmentId || proposalData.department || undefined;
+    const targetUsers = (proposalData.targetUsers || 'Organization Users')?.trim();
+    const expectedOutcome = (proposalData.expectedOutcome || 'Positive business impact')?.trim();
+    const technologyApproach = (proposalData.technologyApproach || proposalData.approach || 'Standard Implementation')?.trim();
+
+    if (!title || !problemBeingSolved || !proposedSolution) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Title, problem being solved, and proposed solution are required.' 
+      });
     }
-    const created = await db.createProposal(proposalData);
-    res.json(created);
+
+    const created = await db.createProposal({
+      title,
+      submittedBy,
+      departmentId,
+      problemBeingSolved,
+      proposedSolution,
+      targetUsers,
+      expectedOutcome,
+      technologyApproach,
+      estimatedScope: proposalData.estimatedScope?.trim(),
+      knownRisks: (proposalData.knownRisks || proposalData.risks)?.trim(),
+      dependencies: proposalData.dependencies?.trim(),
+      whyBelieveItWillWork: (proposalData.whyBelieveItWillWork || proposalData.rationale)?.trim(),
+      whatIsDifferentFromPrevious: (proposalData.whatIsDifferentFromPrevious || proposalData.differences)?.trim(),
+      successCriteria: (proposalData.successCriteria || proposalData.constraints)?.trim(),
+      rawText: proposalData.rawText?.trim(),
+    });
+
+    res.json({
+      success: true,
+      proposal: created,
+      id: created.id,
+    });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    console.error('Error creating proposal:', e);
+    res.status(500).json({ 
+      success: false, 
+      error: e.message || 'Proposal could not be saved. Please try again.' 
+    });
   }
 });
 
@@ -384,18 +427,20 @@ app.post('/api/proposals/:id/outcome', async (req: Request, res: Response) => {
       actualRootCause,
       finalLesson,
       futureAdvice,
+      startDate,
+      endDate,
     } = req.body;
 
     const proposal = await db.getProposalById(req.params.id);
     if (!proposal) return res.status(404).json({ error: 'Proposal not found' });
 
-    // Step 1: Create a new HistoricalProject and Experience from this real outcome
+    // Step 1: Create or link to HistoricalProject and Experience from this real outcome
     const newProjectData = {
       name: proposal.title,
       departmentId: proposal.departmentId,
       projectType: proposal.technologyApproach || 'Initiative',
-      startDate: proposal.createdAt.slice(0, 10),
-      endDate: new Date().toISOString().slice(0, 10),
+      startDate: startDate || proposal.createdAt.slice(0, 10),
+      endDate: endDate || undefined,
       status: actualResult as any,
       problemGoal: proposal.problemBeingSolved,
     };
@@ -412,7 +457,7 @@ app.post('/api/proposals/:id/outcome', async (req: Request, res: Response) => {
       constraints: proposal.dependencies,
       lessonsLearned: finalLesson,
       futureConditions: futureAdvice,
-      source: `Outcome of Proposal "${proposal.title}" (Recorded ${new Date().toISOString().slice(0, 10)})`,
+      source: `Outcome of Proposal "${proposal.title}"`,
     };
 
     const { project: createdProject, experience: createdExp } = await db.createHistoricalProjectAndExperience(newProjectData, newExperienceData);
@@ -429,6 +474,8 @@ app.post('/api/proposals/:id/outcome', async (req: Request, res: Response) => {
         experienceId: createdExp.id,
         projectName: createdProject.name,
         department: createdProject.departmentId,
+        startDate: createdProject.startDate,
+        endDate: createdProject.endDate,
         status: createdProject.status,
         problemGoal: createdExp.problemGoal,
         whatWasAttempted: createdExp.whatWasAttempted,
@@ -547,11 +594,14 @@ async function startServer() {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
     app.get('*', (req: Request, res: Response) => {
+      if (req.path.startsWith('/api')) {
+        return res.status(404).json({ error: 'Endpoint not found' });
+      }
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  app.listen(PORT, () => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`Decision Gate server running on http://0.0.0.0:${PORT}`);
   });
 }

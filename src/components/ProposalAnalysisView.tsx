@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ArrowLeft, 
   FileSearch, 
@@ -14,10 +14,34 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronUp,
-  BookmarkCheck
+  BookmarkCheck,
+  Calendar,
+  FileText
 } from 'lucide-react';
 import { api } from '../api.ts';
 import { Proposal, PrecedentReportData } from '../types.ts';
+
+function deduplicatePrecedents(rawList: any[]) {
+  const map = new Map<string, any>();
+  const cleanNorm = (str: string) => (str || '').toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const cleanProj = (str: string) => cleanNorm(str).replace(/\b(system|project|initiative|tool|app|application|platform|assistant|service)\b/g, '').replace(/\s+/g, ' ').trim();
+
+  for (const item of rawList) {
+    const pName = item.projectName || item.historicalExperience?.project?.name || 'Precedent';
+    const key = item.historicalExperienceId || item.historicalExperience?.id || cleanProj(pName) || cleanNorm(pName) || item.id;
+    if (map.has(key)) {
+      const existing = map.get(key);
+      existing.relevanceScore = Math.max(existing.relevanceScore || 0, item.relevanceScore || 0);
+      if (item.whyRecalled && !existing.whyRecalled.includes(item.whyRecalled)) {
+        if (!existing.additionalEvidence) existing.additionalEvidence = [];
+        existing.additionalEvidence.push(item.whyRecalled);
+      }
+      continue;
+    }
+    map.set(key, { ...item });
+  }
+  return Array.from(map.values());
+}
 
 interface ProposalAnalysisViewProps {
   proposalId: string;
@@ -40,6 +64,8 @@ export const ProposalAnalysisView: React.FC<ProposalAnalysisViewProps> = ({
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeAnalysisStep, setActiveAnalysisStep] = useState<number>(0);
+
+  const canonicalPrecedents = useMemo(() => deduplicatePrecedents(report?.precedents || []), [report]);
 
   // Load Proposal and existing Report if already analyzed
   useEffect(() => {
@@ -349,7 +375,7 @@ export const ProposalAnalysisView: React.FC<ProposalAnalysisViewProps> = ({
               {/* Memory stats */}
               <div className="flex items-center gap-3 text-xs">
                 <div className="px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 font-medium">
-                  <strong>{report.precedents.length}</strong> Relevant Past Experiences
+                  <strong>{canonicalPrecedents.length}</strong> Relevant Past {canonicalPrecedents.length === 1 ? 'Experience' : 'Experiences'}
                 </div>
                 <div className="px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-medium">
                   Evidence Quality: <strong className="text-gray-900">{report.comparison.evidenceQuality}</strong>
@@ -362,32 +388,131 @@ export const ProposalAnalysisView: React.FC<ProposalAnalysisViewProps> = ({
             </p>
 
             {/* Recalled Precedents List */}
-            <div className="space-y-3 pt-2">
-              <h3 className="text-xs font-bold uppercase text-gray-500 tracking-wider">
-                Recalled Organizational Experiences:
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {report.precedents.map((prec, i) => (
-                  <div key={i} className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 text-xs space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-gray-900">{prec.projectName}</span>
-                      <span className={`px-2 py-0.5 rounded font-semibold text-[10px] border ${
-                        prec.status === 'Successful' 
-                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
-                          : 'bg-rose-50 text-rose-800 border-rose-200'
-                      }`}>
-                        {prec.status}
-                      </span>
+            <div className="space-y-4 pt-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase text-gray-500 tracking-wider">
+                  Documented Organizational Precedents ({canonicalPrecedents.length} Unique {canonicalPrecedents.length === 1 ? 'Initiative' : 'Initiatives'}):
+                </h3>
+                <span className="text-[11px] text-gray-400">
+                  Canonical deduplicated precedents
+                </span>
+              </div>
+
+              <div className="space-y-4">
+                {canonicalPrecedents.map((prec, i) => {
+                  const hasDates = Boolean(prec.startDate || prec.endDate);
+                  const timeframeDisplay = hasDates
+                    ? `${prec.startDate || 'Start date unrecorded'} to ${prec.endDate || 'End date unrecorded'}`
+                    : 'Historical dates not specified in source record';
+
+                  return (
+                    <div key={i} className="p-5 rounded-xl bg-white border border-gray-200 shadow-xs space-y-3.5 hover:border-blue-300 transition-colors">
+                      {/* Card Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 border-b border-gray-100">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-extrabold text-gray-900">{prec.projectName}</span>
+                            <span className={`px-2 py-0.5 rounded font-semibold text-[10px] border ${
+                              prec.status === 'Successful' 
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                                : prec.status === 'Partially Successful'
+                                ? 'bg-blue-50 text-blue-800 border-blue-200'
+                                : 'bg-rose-50 text-rose-800 border-rose-200'
+                            }`}>
+                              {prec.status}
+                            </span>
+                          </div>
+                          {/* Historical Period (Requirement 7 & 11) */}
+                          <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                            <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                            <span className="font-medium text-gray-700">Historical Period:</span>
+                            <span className={hasDates ? 'text-gray-900 font-medium' : 'italic text-gray-400'}>
+                              {timeframeDisplay}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                          <FileText className="w-3.5 h-3.5 text-gray-400" />
+                          <span>Source: <strong className="text-gray-700">{prec.source || 'Documented Retrospective'}</strong></span>
+                        </div>
+                      </div>
+
+                      {/* Original Objectives */}
+                      {prec.problemGoal && (
+                        <div className="text-xs">
+                          <strong className="text-gray-900 block mb-0.5">Original Objectives:</strong>
+                          <p className="text-gray-600 bg-slate-50 p-2.5 rounded-lg border border-slate-100 leading-relaxed">
+                            {prec.problemGoal}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* What Was Attempted */}
+                      {prec.whatWasAttempted && (
+                        <div className="text-xs">
+                          <strong className="text-gray-900 block mb-0.5">What Was Attempted:</strong>
+                          <p className="text-gray-600 bg-slate-50 p-2.5 rounded-lg border border-slate-100 leading-relaxed">
+                            {prec.whatWasAttempted}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Why it Failed or Succeeded */}
+                      {(prec.whyItFailed || prec.whatFailed || prec.whatWorked) && (
+                        <div className="text-xs">
+                          <strong className={`block mb-0.5 ${prec.status === 'Successful' ? 'text-emerald-900' : 'text-rose-900'}`}>
+                            {prec.status === 'Successful' ? 'Why It Succeeded & What Worked:' : 'Why It Failed & Root Cause:'}
+                          </strong>
+                          <div className={`p-2.5 rounded-lg border leading-relaxed ${
+                            prec.status === 'Successful'
+                              ? 'bg-emerald-50/70 text-emerald-900 border-emerald-100'
+                              : 'bg-rose-50/70 text-rose-900 border-rose-100'
+                          }`}>
+                            {prec.whyItFailed || prec.whatFailed || prec.whatWorked}
+                            {prec.rootCause && (
+                              <div className="mt-1 pt-1 border-t border-rose-200/50 text-[11px] font-medium">
+                                <strong>Root Cause:</strong> {prec.rootCause}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Relevant Lessons for Current Proposal */}
+                      {prec.lessonsLearned && (
+                        <div className="text-xs">
+                          <strong className="text-indigo-950 block mb-0.5">Relevant Lessons for Current Proposal:</strong>
+                          <p className="text-indigo-900 bg-indigo-50/60 p-2.5 rounded-lg border border-indigo-100 font-medium leading-relaxed">
+                            {prec.lessonsLearned}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Additional Corroborating Evidence Points if merged from multiple memories */}
+                      {prec.additionalEvidence && prec.additionalEvidence.length > 0 && (
+                        <div className="text-xs pt-1 border-t border-gray-100">
+                          <span className="font-semibold text-gray-500 text-[11px] block mb-1">
+                            Corroborating Experiential Evidence ({prec.additionalEvidence.length}):
+                          </span>
+                          <ul className="list-disc list-inside space-y-0.5 text-[11px] text-gray-600">
+                            {prec.additionalEvidence.map((ev: string, idx: number) => (
+                              <li key={idx} className="line-clamp-2">{ev}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Retrieval Note */}
+                      <div className="flex items-center justify-between text-[11px] text-gray-400 pt-1">
+                        <span className="text-blue-600 font-medium">{prec.whyRecalled}</span>
+                        {prec.relevanceScore && (
+                          <span>Precedent Match Confidence: {Math.round(prec.relevanceScore * 100)}%</span>
+                        )}
+                      </div>
                     </div>
-                    <p className="text-gray-600 line-clamp-2">
-                      <strong className="text-gray-800">Lesson:</strong> {prec.lessonsLearned}
-                    </p>
-                    <div className="flex items-center justify-between text-[11px] text-gray-400 pt-1">
-                      <span>Source: {prec.source}</span>
-                      <span className="text-blue-600 font-medium">{prec.whyRecalled.slice(0, 35)}...</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
