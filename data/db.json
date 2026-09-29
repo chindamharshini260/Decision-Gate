@@ -1,0 +1,131 @@
+{
+  "departments": [
+    {
+      "id": "50de1512-be0f-4616-940c-4b838ff02abd",
+      "name": "Customer Operations",
+      "code": "CUST-OPS",
+      "description": "Support, Success, and Customer Service automation",
+      "createdAt": "2026-09-28T17:42:08.304Z"
+    },
+    {
+      "id": "69a5d5d5-309c-419d-96a2-d6e00b032abf",
+      "name": "Product & Engineering",
+      "code": "PROD-ENG",
+      "description": "Core application product teams and platform architecture",
+      "createdAt": "2026-09-28T17:42:08.304Z"
+    }
+  ],
+  "users": [],
+  "historicalProjects": [
+    {
+      "id": "2583e362-bfa7-49f1-b577-8c8843672791",
+      "name": "Customer Support Chatbot",
+      "departmentId": "50de1512-be0f-4616-940c-4b838ff02abd",
+      "projectType": "AI Customer Support",
+      "startDate": "2024-01-15",
+      "endDate": "2024-06-30",
+      "status": "Cancelled",
+      "problemGoal": "Automate tier-1 customer inquiries to reduce ticket resolution time and support staff burnout.",
+      "createdAt": "2026-09-28T17:42:08.304Z",
+      "updatedAt": "2026-09-28T17:42:08.304Z"
+    },
+    {
+      "id": "6c3fe2c2-fc5e-41dd-a4d3-5bcb8eaa416f",
+      "name": "Self-Service Cloud Cost Optimizer",
+      "departmentId": "69a5d5d5-309c-419d-96a2-d6e00b032abf",
+      "projectType": "Infrastructure Automation",
+      "startDate": "2024-04-01",
+      "endDate": "2024-11-15",
+      "status": "Successful",
+      "problemGoal": "Reduce idle cloud compute resources across staging and test environments.",
+      "createdAt": "2026-09-28T17:42:08.304Z",
+      "updatedAt": "2026-09-28T17:42:08.304Z"
+    }
+  ],
+  "historicalExperiences": [
+    {
+      "id": "8525d8eb-fb7f-4d6f-bdf0-f6933b94237e",
+      "projectId": "2583e362-bfa7-49f1-b577-8c8843672791",
+      "problemGoal": "Automate tier-1 customer inquiries to reduce ticket resolution time and support staff burnout.",
+      "whatWasAttempted": "Deployed an automated AI chatbot across web and mobile help centers to resolve customer inquiries end-to-end.",
+      "approachUsed": "Direct LLM responses on general company documentation with no structured human escalation path.",
+      "whatHappened": "Customers frequently asked complicated billing, account migration, and dispute questions. The chatbot hallucinated billing credits and could not resolve edge cases.",
+      "whatWorked": "Handled standard FAQs (business hours, refund policies) adequately.",
+      "whatFailed": "Failed dramatically on complex billing cases, creating angry escalations to executive email channels.",
+      "whyItFailed": "The chatbot could not reliably handle complex billing cases and there was no effective human escalation or tier-2 handoff path.",
+      "rootCause": "Lack of human-in-the-loop escalation criteria, absence of real-time account ledger validation, and unconstrained problem scope.",
+      "constraints": "Strict customer privacy regulations; support team lacked dedicated AI ops engineers.",
+      "importantDecisions": "Decided to deploy company-wide before piloting with a restricted subset of FAQ queries.",
+      "whatWouldWeDoDifferently": "Require deterministic escalation triggers when billing thresholds exceed $50, and establish a warm-handoff protocol to live agents.",
+      "lessonsLearned": "For billing-related AI assistants, complex cases require mandatory human escalation and strict scope boundaries.",
+      "futureConditions": "Can only succeed if scoped exclusively to standard FAQs with automated handoff when user sentiment drops or financial transactions are queried.",
+      "source": "Postmortem — Customer Support Chatbot Incident Review",
+      "hindsightSyncStatus": "PENDING",
+      "createdAt": "2026-09-28T17:42:08.304Z",
+      "updatedAt": "2026-09-28T17:42:08.304Z"
+    },
+    {
+      "id": "1fb1d3e8-61ba-481e-bb8f-65ae09fb0155",
+      "projectId": "6c3fe2c2-fc5e-41dd-a4d3-5bcb8eaa416f",
+      "problemGoal": "Reduce idle cloud compute resources across staging and test environments.",
+      "whatWasAttempted": "Built a CLI and automated cron scheduler for engineering squads to shut down idle testing clusters over weekends.",
+      "approachUsed": "Opt-in policy with Slack notifications and dry-run period before any resource deletion.",
+      "whatHappened": "Squads adopted the scheduler smoothly because warnings were broadcast 24h prior, and engineers could snooze scheduled shutdowns with 1 click.",
+      "whatWorked": "Clear opt-out safeguards, non-destructive initial trial phase, and active Slack bot notifications.",
+      "whatFailed": "Initial documentation was too sparse, requiring an engineering demo session.",
+      "whyItFailed": "",
+      "rootCause": "",
+      "constraints": "Zero disruption to production pipelines.",
+      "importantDecisions": "Opt-in instead of mandated executive decree; built snooze toggle.",
+      "whatWouldWeDoDifferently": "Provide self-service dashboard earlier.",
+      "lessonsLearned": "Automation that affects team workflows succeeds when engineers retain control and receive transparent advance notifications.",
+      "futureConditions": "Applies to any internal developer efficiency or resource management tool.",
+      "source": "Project Retrospective — Infrastructure Q3 Summary",
+      "hindsightSyncStatus": "PENDING",
+      "createdAt": "2026-09-28T17:42:08.304Z",
+      "updatedAt": "2026-09-28T17:42:08.304Z"
+    }
+  ],
+  "sourceDocuments": [],
+  "proposals": [
+    {
+      "title": "AI Billing Assistant",
+      "submittedBy": "Sarah Chen",
+      "problemBeingSolved": "Customer support tickets regarding billing take too long to resolve.",
+      "proposedSolution": "Deploy an AI Billing Assistant to answer billing FAQs with a human escalation workflow.",
+      "targetUsers": "SaaS subscribers",
+      "expectedOutcome": "Reduce billing ticket volume by 35%",
+      "technologyApproach": "Fine-tuned LLM with human escalation workflow",
+      "whatIsDifferentFromPrevious": "Current proposal includes human escalation for complex cases and limits scope to billing FAQs",
+      "id": "e59635b3-23a0-46ea-a3de-37a177e78ec6",
+      "status": "DRAFT",
+      "createdAt": "2026-09-28T17:42:13.098Z",
+      "updatedAt": "2026-09-28T17:42:13.098Z"
+    }
+  ],
+  "proposalAnalyses": [],
+  "recalledPrecedents": [],
+  "precedentComparisons": [],
+  "decisionRecords": [],
+  "proposalOutcomes": [],
+  "knowledgeLinks": [],
+  "auditLogs": [
+    {
+      "id": "88dcf402-93cb-4745-8cf4-cd035e0953cd",
+      "action": "PROPOSAL_CREATED",
+      "entityType": "Proposal",
+      "entityId": "e59635b3-23a0-46ea-a3de-37a177e78ec6",
+      "details": "{\"title\":\"AI Billing Assistant\",\"submittedBy\":\"Sarah Chen\"}",
+      "timestamp": "2026-09-28T17:42:13.099Z"
+    },
+    {
+      "id": "76641475-4f0a-48ec-becc-ebe7866b8c0c",
+      "action": "DEMO_DATA_LOADED",
+      "entityType": "System",
+      "entityId": "demo",
+      "details": "{\"countProjects\":2,\"countExperiences\":2}",
+      "timestamp": "2026-09-28T17:42:08.305Z"
+    }
+  ],
+  "hindsightSyncs": []
+}

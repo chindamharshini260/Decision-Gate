@@ -1,0 +1,318 @@
+// Decision Gate Prisma Schema
+// Relational schema for Organizational Precedent System
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum ProjectStatus {
+  SUCCESSFUL
+  PARTIALLY_SUCCESSFUL
+  FAILED
+  CANCELLED
+  UNKNOWN
+}
+
+enum DocumentProcessingStatus {
+  PENDING
+  EXTRACTED
+  APPROVED
+  REJECTED
+}
+
+enum ProposalStatus {
+  DRAFT
+  ANALYZED
+  DECIDED
+  COMPLETED
+}
+
+enum DecisionType {
+  APPROVED
+  REJECTED
+  MORE_INFO_REQUIRED
+  DEFERRED
+}
+
+enum OutcomeResult {
+  SUCCESSFUL
+  PARTIALLY_SUCCESSFUL
+  FAILED
+  CANCELLED
+}
+
+enum HindsightSyncStatus {
+  PENDING
+  SYNCED
+  FAILED
+}
+
+model Department {
+  id                 String               @id @default(uuid())
+  name               String               @unique
+  code               String
+  description        String?
+  createdAt          DateTime             @default(now())
+  users              User[]
+  historicalProjects HistoricalProject[]
+  proposals          Proposal[]
+
+  @@map("departments")
+}
+
+model User {
+  id           String          @id @default(uuid())
+  name         String
+  email        String          @unique
+  role         String          @default("DECISION_MAKER")
+  departmentId String?
+  department   Department?     @relation(fields: [departmentId], references: [id])
+  createdAt    DateTime        @default(now())
+  proposals    Proposal[]
+  decisions    DecisionRecord[]
+
+  @@map("users")
+}
+
+model HistoricalProject {
+  id              String                @id @default(uuid())
+  name            String
+  departmentId    String?
+  department      Department?           @relation(fields: [departmentId], references: [id])
+  projectType     String
+  startDate       String?
+  endDate         String?
+  status          ProjectStatus         @default(UNKNOWN)
+  problemGoal     String
+  sourceDocId     String?
+  sourceDocument  SourceDocument?       @relation(fields: [sourceDocId], references: [id])
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  experiences     HistoricalExperience[]
+
+  @@map("historical_projects")
+}
+
+model HistoricalExperience {
+  id                       String               @id @default(uuid())
+  projectId                String
+  project                  HistoricalProject    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  problemGoal              String
+  whatWasAttempted         String
+  approachUsed             String
+  whatHappened             String
+  whatWorked               String?
+  whatFailed               String?
+  whyItFailed              String?
+  rootCause                String?
+  constraints              String?
+  importantDecisions       String?
+  whatWouldWeDoDifferently String?
+  lessonsLearned           String
+  futureConditions         String?
+  source                   String
+  sourceDocumentId         String?
+  sourceDocument           SourceDocument?      @relation(fields: [sourceDocumentId], references: [id])
+  
+  // Hindsight Persistent Memory Integration
+  hindsightMemoryId        String?
+  hindsightSyncStatus      HindsightSyncStatus  @default(PENDING)
+  hindsightSyncedAt        DateTime?
+  hindsightSyncError       String?
+
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  recalledPrecedents       RecalledPrecedent[]
+  knowledgeLinksFrom       KnowledgeLink[]      @relation("ExperienceLinksFrom")
+  knowledgeLinksTo         KnowledgeLink[]      @relation("ExperienceLinksTo")
+
+  @@map("historical_experiences")
+}
+
+model SourceDocument {
+  id                       String                   @id @default(uuid())
+  name                     String
+  documentType             String
+  uploadDate               DateTime                 @default(now())
+  content                  String
+  extractedExperienceJson  String?
+  processingStatus         DocumentProcessingStatus @default(PENDING)
+  hindsightStatus          HindsightSyncStatus      @default(PENDING)
+  hindsightMemoryId        String?
+  projectId                String?
+  createdAt                DateTime                 @default(now())
+  historicalProjects       HistoricalProject[]
+  historicalExperiences    HistoricalExperience[]
+
+  @@map("source_documents")
+}
+
+model Proposal {
+  id                          String             @id @default(uuid())
+  title                       String
+  submittedBy                 String
+  userId                      String?
+  user                        User?              @relation(fields: [userId], references: [id])
+  departmentId                String?
+  department                  Department?        @relation(fields: [departmentId], references: [id])
+  problemBeingSolved          String
+  proposedSolution            String
+  targetUsers                 String
+  expectedOutcome             String
+  technologyApproach          String
+  estimatedScope              String?
+  knownRisks                  String?
+  dependencies                String?
+  whyBelieveItWillWork        String?
+  whatIsDifferentFromPrevious String?
+  successCriteria             String?
+  rawText                     String?
+  status                      ProposalStatus     @default(DRAFT)
+  createdAt                   DateTime           @default(now())
+  updatedAt                   DateTime           @updatedAt
+
+  analyses                    ProposalAnalysis[]
+  decisionRecord              DecisionRecord?
+  outcome                     ProposalOutcome?
+
+  @@map("proposals")
+}
+
+model ProposalAnalysis {
+  id                    String                @id @default(uuid())
+  proposalId            String
+  proposal              Proposal              @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  queryUsed             String
+  memoryStatus          String                @default("CONNECTED")
+  memoriesRecalledCount Int                   @default(0)
+  precedentFound        Boolean               @default(false)
+  unresolvedQuestions   String                // Stored as JSON string
+  createdAt             DateTime              @default(now())
+
+  recalledPrecedents    RecalledPrecedent[]
+  precedentComparison   PrecedentComparison?
+
+  @@map("proposal_analyses")
+}
+
+model RecalledPrecedent {
+  id                     String               @id @default(uuid())
+  analysisId             String
+  analysis               ProposalAnalysis     @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  historicalExperienceId String?
+  historicalExperience   HistoricalExperience? @relation(fields: [historicalExperienceId], references: [id])
+  hindsightMemoryId      String?
+  relevanceScore         Float?
+  whyRecalled            String
+  summary                String
+  content                String
+  retrievedAt            DateTime             @default(now())
+
+  @@map("recalled_precedents")
+}
+
+model PrecedentComparison {
+  id                           String           @id @default(uuid())
+  analysisId                   String           @unique
+  analysis                     ProposalAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  problemSimilarity            String
+  solutionSimilarity           String
+  targetUserSimilarity         String
+  technologySimilarity         String
+  operationalSimilarity        String
+  constraintSimilarity         String
+  expectedOutcomeSimilarity    String
+  historicalFailureConditions  String           // Stored as JSON string
+  failureConditionsAssessment  String           // Stored as JSON string
+  historicalSuccessConditions  String           // Stored as JSON string
+  whatHasChanged               String
+  unresolvedQuestions          String           // Stored as JSON string
+  aiInferenceNotes             String
+  evidenceQuality              String
+  createdAt                    DateTime         @default(now())
+
+  @@map("precedent_comparisons")
+}
+
+model DecisionRecord {
+  id              String       @id @default(uuid())
+  proposalId      String       @unique
+  proposal        Proposal     @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  decision        DecisionType
+  decisionMaker   String
+  userId          String?
+  user            User?        @relation(fields: [userId], references: [id])
+  reason          String
+  conditions      String?
+  additionalNotes String?
+  decidedAt       DateTime     @default(now())
+
+  @@map("decision_records")
+}
+
+model ProposalOutcome {
+  id                   String              @id @default(uuid())
+  proposalId           String              @unique
+  proposal             Proposal            @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  actualResult         OutcomeResult
+  whatHappened         String
+  didPredictedRiskOccur Boolean
+  assumptionsCorrect   String
+  assumptionsWrong     String
+  whatWorked           String?
+  whatFailed           String?
+  actualRootCause      String?
+  finalLesson          String
+  futureAdvice         String?
+  recordedAt           DateTime            @default(now())
+  
+  // Feedback loop into organizational memory
+  newExperienceId      String?
+  hindsightSyncStatus  HindsightSyncStatus @default(PENDING)
+  hindsightMemoryId    String?
+  hindsightSyncError   String?
+
+  @@map("proposal_outcomes")
+}
+
+model KnowledgeLink {
+  id            String               @id @default(uuid())
+  sourceExpId   String
+  sourceExp     HistoricalExperience @relation("ExperienceLinksFrom", fields: [sourceExpId], references: [id], onDelete: Cascade)
+  targetExpId   String
+  targetExp     HistoricalExperience @relation("ExperienceLinksTo", fields: [targetExpId], references: [id], onDelete: Cascade)
+  linkType      String
+  description   String?
+  createdAt     DateTime             @default(now())
+
+  @@map("knowledge_links")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  action     String
+  entityType String
+  entityId   String
+  details    String?  // JSON string
+  timestamp  DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+model HindsightSync {
+  id         String              @id @default(uuid())
+  entityType String
+  entityId   String
+  operation  String              // RETAIN, RECALL, REFLECT
+  status     HindsightSyncStatus
+  memoryId   String?
+  error      String?
+  timestamp  DateTime            @default(now())
+
+  @@map("hindsight_syncs")
+}

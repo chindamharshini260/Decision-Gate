@@ -1,0 +1,6 @@
+{
+  "name": "Decision Gate",
+  "description": "Organizational decision-support system to learn from what the organization already tried before saying YES, powered by Hindsight and Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
